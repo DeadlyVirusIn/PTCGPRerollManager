@@ -12,15 +12,21 @@ var emoji_PeepoClown = ``;
 var emoji_Prayge = ``;
 var emoji_Sadge = ``;
 
+// And modify findEmoji in missSentences.js to also check ID if name fails
 function findEmoji(myClient, name, fallback = ""){
-
-    const emoji = myClient.emojis.cache.find(emoji => emoji.name == name)
-
-    if (emoji == undefined){
+    // First try by name
+    let emoji = myClient.emojis.cache.find(emoji => emoji.name === name);
+    
+    // If not found, try by ID (if name looks like an ID)
+    if (!emoji && /^\d+$/.test(name)) {
+        emoji = myClient.emojis.cache.get(name);
+    }
+    
+    if (!emoji) {
         return fallback;
     }
-
-    return emoji
+    
+    return emoji;
 }
 
 function initEmojis( client ){
