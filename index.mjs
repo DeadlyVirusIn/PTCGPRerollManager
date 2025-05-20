@@ -1,4 +1,4 @@
-//                    GNU GENERAL PUBLIC LICENSE
+﻿//                    GNU GENERAL PUBLIC LICENSE
 //                       Version 3, 29 June 2007
 //
 //Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>
@@ -6,10 +6,10 @@
 //of this license document, but changing it is not allowed.
 //
 // Bot written by @thobi made to work with Arturo PTCG Bot for the PTCGP Rerollers community
-// See here : https://github.com/Arturo-1212/PTCGPB
+// See here: https://github.com/Arturo-1212/PTCGPB
 // Shoutout to @cjlj for Automated ids.txt modifications on the ahk side
 //
-// Documentation :
+// Documentation:
 // https://github.com/TheThobi/PTCGPRerollManager
 //
 
@@ -20,11 +20,20 @@ import {
     guildID,
     channelID_Commands,
     channelID_UserStats,
-    channelID_GPVerificationForum,
     channelID_2StarVerificationForum,
     channelID_Webhook,
     channelID_Heartbeat,
     channelID_AntiCheat,
+    channelID_MewtwoVerificationForum,
+    channelID_CharizardVerificationForum,
+    channelID_PikachuVerificationForum,
+    channelID_MewVerificationForum,
+    channelID_DialgaVerificationForum,
+    channelID_PalkiaVerificationForum,
+    channelID_ArceusVerificationForum,
+    channelID_ShiningVerificationForum,
+    channelID_SolgaleoVerificationForum,
+    channelID_LunalaVerificationForum,
     gitToken,
     gitGistID,
     gitGistGroupName,
@@ -60,8 +69,10 @@ import {
     text_waitingLogo,
     text_notLikedLogo,
     text_deadLogo,
+    channelID_GPTrackingList,
+    gpTrackingUpdateInterval,
+    gpTrackingUseCronSchedule,
 } from './config.js';
-
 import {
     formatMinutesToDays,
     formatNumbertoK,
@@ -114,8 +125,10 @@ import {
     updateAntiCheat,
     updateUserDataGPLive,
     addUserDataGPLive,
+    getPackSpecificChannel,
+    updateGPTrackingList,
+    createTimelineStats,
 } from './Dependencies/coreUtils.js';
-
 import {
     checkFileExists,
     checkFileExistsOrCreate,
@@ -205,6 +218,17 @@ import {
     PermissionsBitField,
 } from 'discord.js';
 
+import {
+    scheduleJob
+} from 'node-schedule';
+
+// Import the GP test utilities
+import {
+    addNoShow,
+    resetTest,
+    getTestSummary,
+    extractGodpackIdFromMessage,
+} from './Dependencies/gpTestUtils.js';
 // Global Var
 
 const client = new Client({
@@ -218,7 +242,6 @@ const client = new Client({
 
 var startIntervalTime = Date.now();    
 var evenTurnShortInterval = false;
-
 function getNexIntervalRemainingTime() {
     const currentTime = Date.now();
     const elapsedTime = currentTime - startIntervalTime;
@@ -226,6 +249,24 @@ function getNexIntervalRemainingTime() {
     return timeRemaining;
 }
 
+// Setup scheduled jobs function
+function setupScheduledJobs(client) {
+    // Schedule the GP tracking list update based on configuration
+    if (gpTrackingUseCronSchedule) {
+        // Use cron-style scheduling (more precise but more complex)
+        // This will run every X minutes (*/X = every X minutes)
+        scheduleJob(`*/${gpTrackingUpdateInterval} * * * *`, function() {
+            updateGPTrackingList(client);
+        });
+        console.log(`🕒 Scheduled GP tracking list update every ${gpTrackingUpdateInterval} minutes using cron schedule`);
+    } else {
+        // Use simple interval (less precise but simpler)
+        setInterval(function() {
+            updateGPTrackingList(client);
+        }, gpTrackingUpdateInterval * 60 * 1000); // Convert minutes to milliseconds
+        console.log(`🕒 Scheduled GP tracking list update every ${gpTrackingUpdateInterval} minutes using interval`);
+    }
+}
 // Events
 
 client.once(Events.ClientReady, async c => {
@@ -246,14 +287,28 @@ client.once(Events.ClientReady, async c => {
         }
 
     }, convertMnToMs(refreshInterval/2));
+// TIMELINE STATS COMMAND
+    const timelineStatsDesc = localize("Affiche les statistiques d'activité sur une période", "Display activity statistics over a time period");
+    const timelineStatsDescDays = localize("Nombre de jours à considérer (défaut: 7)", "Number of days to consider  (default: 7)");
+    const timelineStatsSCB = new SlashCommandBuilder()
+    .setName(`timelinestats`)
+    .setDescription(`${timelineStatsDesc}`)
+    .addIntegerOption(option =>
+        option
+            .setName("days")
+            .setDescription(`${timelineStatsDescDays}`)
+            .setRequired(false)
+            .setMinValue(1)
+            .setMaxValue(30)
+    );
 
     // Send back the messages with buttons so ppl can switch states easily
-    await sendStatusHeader(client)
+    await sendStatusHeader(client);
     setInterval(async() =>{
-        await sendStatusHeader(client)
+        await sendStatusHeader(client);
     }, convertMnToMs(60));
 
-    // Reset and Update ServerData every X hours (might disable the loop it if you have over 10k gp or it'll take a while)
+    // Reset and Update ServerData every X hours (might disable the loop if you have over 10k gp or it'll take a while)
     await updateServerData(client, true);
     setInterval(async() =>{
         await updateServerData(client);
@@ -279,17 +334,22 @@ client.once(Events.ClientReady, async c => {
     
     await updateInactiveGPs(client);
 
-    // Clear all guild commands (Warning : also clear channels restrictions set on discord)
+    // Initial update of GP tracking list
+    await updateGPTrackingList(client);
+    
+    // Setup scheduled jobs
+    setupScheduledJobs(client);
+
+    // Clear all guild commands (Warning: also clears channel restrictions set on discord)
     // guild.commands.set([]);
 
     // Clear a specific guild command
     // const commandId = 'XXXXXXXXXXXXXXXXXXX';
     // await guild.commands.delete(commandId);
+// Commands Creation
 
-    // Commands Creation
-
-    const playeridDesc = localize("Lie votre code ami à votre pseudo discord unique", "Link your ID Code with you Discord unique username");
-    const playeridDescId = localize("Votre ID SANS TIRET", "Your ID without any dash");
+    const playeridDesc = localize("Lie votre code ami à votre pseudo discord unique", "Link your ID Code with your Discord unique username");
+    const playeridDescId = localize("Votre ID SANS TIRET", "Your ID without any dashes");
     const playeridSCB = new SlashCommandBuilder()
         .setName(`setplayerid`)
         .setDescription(`${playeridDesc}\n`) 
@@ -300,8 +360,8 @@ client.once(Events.ClientReady, async c => {
                 .setRequired(true)
         );
 
-    const instancesDesc = localize("Renseignez votre nombre d'instance moyen", "Set to your average number of instances");
-    const instancesDescAmount = localize("Nombres ronds (ex: pas 5.5 parce que vous etes a 6 et de fois 5)", "Round nombers (ex : not 5.5 if you're running 5 and sometimes 6)");
+    const instancesDesc = localize("Renseignez votre nombre d'instance moyen", "Set your average number of instances");
+    const instancesDescAmount = localize("Nombres ronds (ex: pas 5.5 parce que vous etes a 6 et de fois 5)", "Round numbers (e.g., not 5.5 if you usually run 5 or 6)");
     const instancesSCB = new SlashCommandBuilder()
         .setName(`setaverageinstances`)
         .setDescription(`${instancesDesc}\n`)
@@ -313,7 +373,7 @@ client.once(Events.ClientReady, async c => {
         );
 
     const prefixDesc = localize("Renseignez votre préfixe de votre liste de nom d'utilisateur", "Set your prefix from your username list");
-    const prefixDescPrefix = localize("Doit être composé de 4 lettres", "Needs to be 4 letters");
+    const prefixDescPrefix = localize("Doit être composé de 4 lettres", "Must be exactly 4 letters");
     const prefixSCB = new SlashCommandBuilder()
         .setName(`setprefix`)
         .setDescription(`${prefixDesc}\n`)
@@ -325,7 +385,7 @@ client.once(Events.ClientReady, async c => {
         );
 
     const activeDesc = localize("Vous ajoute dans le doc d'ID", "Add yourself to the active rerollers list");
-    const activeDescUser = localize("ADMIN ONLY : pour forcer l'ajout de quelqu'un d'autre", "ADMIN ONLY : Only usefull so force add someone else than yourself");
+    const activeDescUser = localize("ADMIN ONLY : pour forcer l'ajout de quelqu'un d'autre", "ADMIN ONLY: Only useful to force-add someone other than yourself");
     const activeSCB = new SlashCommandBuilder()
         .setName(`active`)
         .setDescription(`${activeDesc}`)
@@ -335,9 +395,8 @@ client.once(Events.ClientReady, async c => {
                 .setDescription(`${activeDescUser}`)
                 .setRequired(false)
         );
-    
-    const inactiveDesc = localize("Vous retire du doc d'ID"," Withdraw yourself from the active rerollers list");
-    const inactiveDescUser = localize("ADMIN ONLY : pour forcer le retrait de quelqu'un d'autre", "ADMIN ONLY : Only usefull so force remove someone else than yourself");
+    const inactiveDesc = localize("Vous retire du doc d'ID"," Remove yourself from the active rerollers list");
+    const inactiveDescUser = localize("ADMIN ONLY : pour forcer le retrait de quelqu'un d'autre", "ADMIN ONLY: Only useful to force-remove someone other than yourself");
     const inactiveSCB = new SlashCommandBuilder()
         .setName(`inactive`)
         .setDescription(`${inactiveDesc}`)
@@ -349,7 +408,7 @@ client.once(Events.ClientReady, async c => {
         );
         
     const farmDesc = localize("Vous ajoute dans le doc d'ID comme farmer (noMain)", "Add yourself to the active rerollers list as farmer (noMain)");
-    const farmDescUser = localize("ADMIN ONLY : pour forcer l'ajout' de quelqu'un d'autre", "ADMIN ONLY : Only usefull so force add someone else than yourself");
+    const farmDescUser = localize("ADMIN ONLY : pour forcer l'ajout' de quelqu'un d'autre", "ADMIN ONLY: Only useful to force-add someone other than yourself");
     const farmSCB = new SlashCommandBuilder()
         .setName(`farm`)
         .setDescription(`${farmDesc}`)
@@ -361,7 +420,7 @@ client.once(Events.ClientReady, async c => {
         );
 
     const leechDesc = localize("Vous ajoute dans le doc d'ID comme leecher (onlyMain)", "Add yourself to the active rerollers list as leecher (onlyMain)");
-    const leechDescUser = localize("ADMIN ONLY : pour forcer l'ajout' de quelqu'un d'autre", "ADMIN ONLY : Only usefull so force add someone else than yourself");
+    const leechDescUser = localize("ADMIN ONLY : pour forcer l'ajout' de quelqu'un d'autre", "ADMIN ONLY: Only useful to force-add someone other than yourself");
     const leechSCB = new SlashCommandBuilder()
         .setName(`leech`)
         .setDescription(`${leechDesc}`)
@@ -371,13 +430,12 @@ client.once(Events.ClientReady, async c => {
                 .setDescription(`${leechDescUser}`)
                 .setRequired(false)
         );
-    
-    const refreshDesc = localize("Rafraichit la liste des Stats instantanément","Refresh the user stats instantly");
+const refreshDesc = localize("Rafraichit la liste des Stats instantanément","Refresh the user stats instantly");
     const refreshSCB = new SlashCommandBuilder()
         .setName(`refresh`)
         .setDescription(`${refreshDesc}`);
 
-    const forcerefreshDesc = localize("Rafraichit la liste des ids et les envois au server","Refresh the ids.txt and sent them to servers");
+    const forcerefreshDesc = localize("Rafraichit la liste des ids et les envois au server","Refresh the ids.txt and send it to the servers");
     const forcerefreshSCB = new SlashCommandBuilder()
         .setName(`forcerefresh`)
         .setDescription(`${forcerefreshDesc}`);
@@ -391,7 +449,6 @@ client.once(Events.ClientReady, async c => {
     const deadSCB = new SlashCommandBuilder()
         .setName(`dead`)
         .setDescription(`${deadDesc}`);
-
     const likedDesc = localize("Designe pack comme liké","Flag the post as liked");
     const likedSCB = new SlashCommandBuilder()
         .setName(`liked`)
@@ -407,19 +464,19 @@ client.once(Events.ClientReady, async c => {
         .setName(`miss`)
         .setDescription(`${missDesc}`);
 
-    const misscountDesc = localize("Montre le rapport de miss par temps passé à roll", "Show how many miss rerollers have done while active");
+    const misscountDesc = localize("Montre le rapport de miss par temps passé à roll", "Show how many misses rerollers made while active");
     const misscountSCB = new SlashCommandBuilder()
         .setName(`misscount`)
         .setDescription(`${misscountDesc}`);
 
-    const lastactivityDesc = localize("Montre à combien de temps remonte le dernier Heartbeat", "Show how long since the last Heartbeat was");
+    const lastactivityDesc = localize("Montre à combien de temps remonte le dernier Heartbeat", "Show how much time has passed since the last Heartbeat");
     const lastactivitySCB = new SlashCommandBuilder()
         .setName(`lastactivity`)
         .setDescription(`${lastactivityDesc}`);
 
-    const generateusernamesDesc = localize("Génère liste basé sur préfixe et, facultatif, des mots","Generate a list based on a prefix and, if wanted, keywords");   
-    const generateusernamesDescPrefix = localize("Les 4 premières lettres premières lettres de votre pseudo","The 4 firsts letter of your pseudonym");   
-    const generateusernamesDescKeyword = localize("Des mots clés qui seront assemblés aléatoirement, espace/virgule = séparation","Some keywords that will be assembled randomly, space or comma are separations");   
+    const generateusernamesDesc = localize("Génère liste basé sur préfixe et, facultatif, des mots","Generate a list based on a prefix and, if desired, keywords");   
+    const generateusernamesDescPrefix = localize("Les 4 premières lettres premières lettres de votre pseudo","The first 4 letters of your username");   
+    const generateusernamesDescKeyword = localize("Des mots clés qui seront assemblés aléatoirement, espace/virgule = séparation","Some keywords that will be assembled randomly, space or comma are separators");   
     const generateusernamesSCB = new SlashCommandBuilder()
         .setName(`generateusernames`)
         .setDescription(`${generateusernamesDesc}`)
@@ -434,9 +491,8 @@ client.once(Events.ClientReady, async c => {
                 .setDescription(`${generateusernamesDescKeyword}`)
                 .setRequired(false)
         );
-
-    const addGPFoundDesc = localize("ADMIN ONLY : Ajoute un GP trouvé à un utilisateur pour les stats","ADMIN ONLY : Add a GP Found to an user for the stats");
-    const addGPFoundDescUser = localize("seulement utile pour corriger des erreurs","Only usefull to fix bugs");
+const addGPFoundDesc = localize("ADMIN ONLY : Ajoute un GP trouvé à un utilisateur pour les stats","ADMIN ONLY: Add a GP Found to a user for the stats");
+    const addGPFoundDescUser = localize("seulement utile pour corriger des erreurs","Only useful for fixing bugs");
     const addGPFoundSCB = new SlashCommandBuilder()
         .setName(`addgpfound`)
         .setDescription(`${addGPFoundDesc}`)
@@ -447,8 +503,8 @@ client.once(Events.ClientReady, async c => {
                 .setRequired(false)
         );
 
-    const removeGPFoundDesc = localize("ADMIN ONLY : Retire un GP trouvé à un utilisateur pour les stats","ADMIN ONLY : Remove a GP Found to an user for the stats");
-    const removeGPFoundDescUser = localize("seulement utile pour corriger des erreurs","only usefull to fix bugs");
+    const removeGPFoundDesc = localize("ADMIN ONLY : Retire un GP trouvé à un utilisateur pour les stats","ADMIN ONLY: Remove a GP Found from a user for the stats");
+    const removeGPFoundDescUser = localize("seulement utile pour corriger des erreurs","Only useful for fixing bugs");
     const removeGPFoundSCB = new SlashCommandBuilder()
     .setName(`removegpfound`)
     .setDescription(`${removeGPFoundDesc}`)
@@ -459,7 +515,44 @@ client.once(Events.ClientReady, async c => {
             .setRequired(false)
     );
 
-    const playeridCommand = playeridSCB.toJSON();
+    // Add the new refresh GP tracking list command
+    const refreshGPTrackingDesc = localize("Rafraîchit la liste des GP actifs","Refresh the active GP list");
+    const refreshGPTrackingSCB = new SlashCommandBuilder()
+        .setName(`refreshgplist`)
+        .setDescription(`${refreshGPTrackingDesc}`);
+        
+    // NoShow command definition
+    const noshowDesc = localize("Signale un test sans montrer le godpack", "Report a test without showing the godpack");
+    const noshowDescSlots = localize("Nombre d'emplacements ouverts", "Number of open slots");
+    const noshowDescFriends = localize("Nombre total d'amis ou comptes", "Total number of friends or accounts");
+    const noshowSCB = new SlashCommandBuilder()
+        .setName(`noshow`)
+        .setDescription(`${noshowDesc}`)
+        .addIntegerOption(option =>
+            option
+                .setName("slots")
+                .setDescription(`${noshowDescSlots}`)
+                .setRequired(true)
+        )
+        .addIntegerOption(option =>
+            option
+                .setName("friends")
+                .setDescription(`${noshowDescFriends}`)
+                .setRequired(true)
+        );
+
+    // Reset test command definition
+    const resetTestDesc = localize("Réinitialise les tests pour un godpack spécifique", "Reset tests for a specific godpack");
+    const resetTestSCB = new SlashCommandBuilder()
+        .setName(`resettest`)
+        .setDescription(`${resetTestDesc}`);
+
+    // Test summary command definition
+    const testSummaryDesc = localize("Affiche un résumé des tests pour ce godpack", "Display a summary of tests for this godpack");
+    const testSummarySCB = new SlashCommandBuilder()
+        .setName(`testsummary`)
+        .setDescription(`${testSummaryDesc}`);
+const playeridCommand = playeridSCB.toJSON();
     client.application.commands.create(playeridCommand, guildID);
 
     const instancesCommand = instancesSCB.toJSON();
@@ -515,8 +608,27 @@ client.once(Events.ClientReady, async c => {
 
     const removeGPFoundCommand = removeGPFoundSCB.toJSON();
     client.application.commands.create(removeGPFoundCommand, guildID);
-});
 
+    // Create the new GP tracking list refresh command
+    const refreshGPTrackingCommand = refreshGPTrackingSCB.toJSON();
+    client.application.commands.create(refreshGPTrackingCommand, guildID);
+    
+    // Register the timeline stats command
+    const timelineStatsCommand = timelineStatsSCB.toJSON();
+    client.application.commands.create(timelineStatsCommand, guildID);
+    
+    // Register the NoShow command
+    const noshowCommand = noshowSCB.toJSON();
+    client.application.commands.create(noshowCommand, guildID);
+
+    // Register the Reset Test command
+    const resetTestCommand = resetTestSCB.toJSON();
+    client.application.commands.create(resetTestCommand, guildID);
+
+    // Register the Test Summary command
+    const testSummaryCommand = testSummarySCB.toJSON();
+    client.application.commands.create(testSummaryCommand, guildID);
+});
 client.on(Events.InteractionCreate, async interaction => {
 
     var interactionUserName = interaction.user.username;
@@ -554,16 +666,15 @@ client.on(Events.InteractionCreate, async interaction => {
         }
 
         if(!interaction.isChatInputCommand()) return;
-
-        // SET PLAYER ID COMMAND
+// SET PLAYER ID COMMAND
         if(interaction.commandName === `setplayerid`){
 
             await interaction.deferReply();
             const id = interaction.options.getString(`id`);
 
-            const text_incorrectID = localize("ID Incorrect pour","ID Incorrect for");
-            const text_incorrectReason = localize("Votre code doit être composé de **16 chifres**","Your could should be **16 numbers length**");
-            const text_replace = localize("a été remplacé par","have been replaced by");
+            const text_incorrectID = localize("ID Incorrect pour","Incorrect ID for");
+            const text_incorrectReason = localize("Votre code doit être composé de **16 chifres**","Your code should be **16 numbers in length**");
+            const text_replace = localize("a été remplacé par","has been replaced by");
             const text_for = localize("pour","for");
             const text_set = localize("set pour","set for user");
 
@@ -585,11 +696,24 @@ client.on(Events.InteractionCreate, async interaction => {
             }
         }
 
-        // ACTIVE COMMAND
+        // TIMELINE STATS COMMAND
+        if(interaction.commandName === `timelinestats`){
+            await interaction.deferReply();
+            try {
+                const days = interaction.options.getInteger(`days`) || 7;
+                
+                const timelineEmbed = await createTimelineStats(client, days);
+                await interaction.editReply({ embeds: [timelineEmbed] });
+            } catch (error) {
+                console.error('Error handling timeline stats command:', error);
+                await interaction.editReply({ content: "Failed to generate timeline statistics." });
+            }
+        }
+// ACTIVE COMMAND
         if(interaction.commandName === `active`){
 
             await interaction.deferReply();
-            const text_missingPerm = localize("n\'a pas les permissions nécessaires pour changer l\'état de","do not have the permission to edit other user");
+            const text_missingPerm = localize("n\'a pas les permissions nécessaires pour changer l\'état de","does not have permission to edit other user");
             
             var user = interaction.user;
             const userArg = interaction.options.getUser(`user`);
@@ -611,7 +735,7 @@ client.on(Events.InteractionCreate, async interaction => {
         if(interaction.commandName === `inactive`){
 
             await interaction.deferReply();
-            const text_missingPerm = localize("n\'a pas les permissions nécessaires pour changer l\'état de","do not have the permission to edit the other user");
+            const text_missingPerm = localize("n\'a pas les permissions nécessaires pour changer l\'état de","does not have permission to edit the other user");
             
             var user = interaction.user;
             const userArg = interaction.options.getUser(`user`);
@@ -633,7 +757,7 @@ client.on(Events.InteractionCreate, async interaction => {
         if(interaction.commandName === `farm`){
 
             await interaction.deferReply();
-            const text_missingPerm = localize("n\'a pas les permissions nécessaires pour changer l\'état de","do not have the permission to edit the other user");
+            const text_missingPerm = localize("n\'a pas les permissions nécessaires pour changer l\'état de","does not have permission to edit the other user");
             
             var user = interaction.user;
             const userArg = interaction.options.getUser(`user`);
@@ -655,7 +779,7 @@ client.on(Events.InteractionCreate, async interaction => {
         if(interaction.commandName === `leech`){
 
             await interaction.deferReply();
-            const text_missingPerm = localize("n\'a pas les permissions nécessaires pour changer l\'état de","do not have the permission to edit the other user");
+            const text_missingPerm = localize("n\'a pas les permissions nécessaires pour changer l\'état de","does not have permission to edit the other user");
             
             var user = interaction.user;
             const userArg = interaction.options.getUser(`user`);
@@ -672,8 +796,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
             setUserState(client, user, "leech", interaction)
         }
-
-        // REFRESH COMMAND
+// REFRESH COMMAND
         if(interaction.commandName === `refresh`){
             
             await interaction.deferReply();
@@ -688,7 +811,7 @@ client.on(Events.InteractionCreate, async interaction => {
             
             await interaction.deferReply();
             const refreshTime = roundToOneDecimal(getNexIntervalRemainingTime());
-            const text_IDsRefreshedIn = localize("**IDs rafraichis**, rafraichissment des **Stats dans","**IDs refreshed**, reshing the **Stats in");
+            const text_IDsRefreshedIn = localize("**IDs rafraichis**, rafraichissment des **Stats dans","**IDs refreshed**, refreshing **Stats in");
             const text_see = localize("voir","see");
 
             const text_listRefreshed = `${text_IDsRefreshedIn} ${refreshTime}mn**, ${text_see} <#${channelID_UserStats}>`;
@@ -696,13 +819,12 @@ client.on(Events.InteractionCreate, async interaction => {
             await sendReceivedMessage(client, text_listRefreshed, interaction, delayMsgDeleteState);
             sendIDs(client);
         }
-        
-        // VERIFIED COMMAND
+// VERIFIED COMMAND
         if(interaction.commandName === `verified`){
             
             await interaction.deferReply();
-            const text_markAsVerified = localize("Godpack marqué comme live","Godpack marked as live");
-            const text_alreadyVerified = localize("C'est gentil de ta part mais il est déjà vérifié le GodPack","That's kind of you but this GP already is verified");
+            const text_markAsVerified = localize("Godpack marqué comme live","Godpack marked as verified");
+            const text_alreadyVerified = localize("C'est gentil de ta part mais il est déjà vérifié le GodPack","That's kind of you, but this GP is already verified");
 
             const thread = client.channels.cache.get(interaction.channelId);
 
@@ -720,6 +842,9 @@ client.on(Events.InteractionCreate, async interaction => {
                 await addUserDataGPLive(client, thread);
     
                 await sendReceivedMessage(client, `${text_verifiedLogo} ${text_markAsVerified}`, interaction);
+                
+                // Update GP tracking list after a GP is verified
+                await updateGPTrackingList(client);
             }
         }
 
@@ -728,6 +853,9 @@ client.on(Events.InteractionCreate, async interaction => {
 
             await interaction.deferReply();
             await markAsDead(client, interaction);
+            
+            // Update GP tracking list after a GP is marked as dead
+            await updateGPTrackingList(client);
         }
 
         // LIKED COMMAND
@@ -735,7 +863,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     
             await interaction.deferReply();
             const text_markAsLiked = localize(`Godpack marqué comme **liké** ${text_likedLogo} beaucoup de chance d'être live`,`Godpack marked as **liked** ${text_likedLogo} likely to be live`);
-            const text_alreadyLiked = localize("C'est gentil de ta part mais il est déjà marqué comme liké","That's kind of you but this GP already is already marked as liked");
+            const text_alreadyLiked = localize("C'est gentil de ta part mais il est déjà marqué comme liké","That's kind of you, but this GP is already marked as liked");
 
             const thread = client.channels.cache.get(interaction.channelId);
 
@@ -747,6 +875,9 @@ client.on(Events.InteractionCreate, async interaction => {
                 await thread.edit({ name: `${newPostName}` });
 
                 await sendReceivedMessage(client, `${text_markAsLiked}`, interaction);
+                
+                // Update GP tracking list after a GP is marked as liked
+                await updateGPTrackingList(client);
             }
         }
 
@@ -754,8 +885,9 @@ client.on(Events.InteractionCreate, async interaction => {
         if(interaction.commandName === `notliked`){
             
             await interaction.deferReply();
-            const text_markAsNotLiked = localize(`Godpack marqué comme **non liké** ${text_notLikedLogo} Peu de chance d'être live\n**Nombre de miss total requis**`,`Godpack marked as **not liked** ${text_notLikedLogo} Unlikely to be live\n**Total amount of miss required**`);
-            const text_alreadyNotLiked = localize("C'est gentil de ta part mais il est déjà marqué comme non liké","That's kind of you but this GP already is already marked as not liked");
+            const text_markAsNotLiked = localize(`Godpack marqué comme **non liké** ${text_notLikedLogo} Peu de chance d'être live\n**Nombre de miss total requis**`,`Godpack marked as **not liked** ${text_notLikedLogo} Unlikely to be live\n**Total number of misses required**`);
+            const text_alreadyNotLiked = localize("C'est gentil de ta part mais il est déjà marqué comme non liké","That's kind of you, but this GP is already marked as not liked");
+            const text_notCompatible = localize("This GP uses the **old format**, so /notliked is not compatible","This GP uses the **old format**, so /notliked is not compatible");
 
             const thread = client.channels.cache.get(interaction.channelId);
 
@@ -781,15 +913,18 @@ client.on(Events.InteractionCreate, async interaction => {
                     // Check if, once modified, the missAmount is greater or equal to the new newMissNeeded
                     if (missAmount>=newMissNeeded){
                         
-                        const text_failed = localize(`Po\n`,`Well rip,`) + ` **[ ${newMissAmount} miss / ${missNeeded} ]**\n`;
-                        await markAsDead(client, interaction, text_finalNotLiked + localize(`\n\nCependant comportant deja suffisement de Miss pour être considéré comme\n`,`\n\nThought enough misses to be considered as\n`));
+                        const text_failed = localize(`Po\n`,`Well, rip,`) + ` **[ ${missAmount} miss / ${missNeeded} ]**\n`;
+                        await markAsDead(client, interaction, text_finalNotLiked + localize(`\n\nCependant comportant deja suffisement de Miss pour être considéré comme\n`,`\n\nHowever, already containing enough misses to be considered as\n`));
                     }
-                    else{ // Else, the missAmount is lower to the new newMissNeeded
+                    else{ // Else, the missAmount is lower than the new newMissNeeded
 
                         const newPostName = replaceAnyLogoWith(thread.name, text_notLikedLogo);
                         await thread.edit({ name: `${newPostName}` });
                         await initialMessage.edit(`${replaceMissNeeded(initialMessage.content, newMissNeeded)}`);
                         await sendReceivedMessage(client, `${text_finalNotLiked}`, interaction);
+                        
+                        // Update GP tracking list after a GP is marked as not liked
+                        await updateGPTrackingList(client);
                     }
                 }
                 else{
@@ -797,13 +932,12 @@ client.on(Events.InteractionCreate, async interaction => {
                 }
             }
         }
-
-        // MISS COMMAND
+// MISS COMMAND
         if(interaction.commandName === `miss`){
 
             await interaction.deferReply();
-            const text_notCompatible = localize("Le GP est dans **l'ancien format**, /miss incompatible","The GP is using the **old format**, /miss incompatible");
-            const text_scam = localize("Oh le petit malin il a essayé de scam un miss 🤡\nVenez voir tout le monde","Little sneaky boy tried to scam a miss 🤡\nCome see everyone");
+            const text_notCompatible = localize("This GP uses the **old format**, so /miss is not compatible","This GP uses the **old format**, so /miss is not compatible");
+            const text_scam = localize("Oh le petit malin il a essayé de scam un miss 🤡\nVenez voir tout le monde","Little sneaky boy tried to scam a miss 🤡\nEveryone, take a look at this");
 
             const thread = client.channels.cache.get(interaction.channelId);
 
@@ -828,13 +962,16 @@ client.on(Events.InteractionCreate, async interaction => {
                         
                         await initialMessage.edit( `${replaceMissCount(initialMessage.content, newMissAmount)}`);
 
-                        const text_failed = localize(`C'est finito\n`,`Well rip,`) + ` **[ ${newMissAmount} miss / ${missNeeded} ]**\n`;
+                        const text_failed = localize(`C'est finito\n`,`It's over\n`) + ` **[ ${newMissAmount} miss / ${missNeeded} ]**\n`;
                         await markAsDead(client, interaction, text_failed);
+                        
+                        // Update GP tracking list after a GP is marked as dead via misses
+                        await updateGPTrackingList(client);
                     }
                     else{
                         await initialMessage.edit( `${replaceMissCount(initialMessage.content, newMissAmount)}`);
                         
-                        // If miss is <= 50% the amount sentences are """encouraging""" then it gets worst and even more after 75% 
+                        // If miss is <= 50% the amount sentences are """encouraging""" then it gets worse and even more after 75% 
                         const text_fitTension = newMissAmount <= missNeeded*0.5 ? text_lowTension(client) : newMissAmount <= missNeeded*0.75 ? text_mediumTension(client) : text_highTension(client);
                         await sendReceivedMessage(client, `${text_fitTension}\n**[ ${newMissAmount} miss / ${missNeeded} ]**`, interaction);            
                     }
@@ -847,8 +984,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 await sendReceivedMessage(client, text_scam, interaction);
             }
         }
-
-        // MISS COUNT COMMAND
+// MISS COUNT COMMAND
         if(interaction.commandName === `misscount`){
 
             await interaction.deferReply();
@@ -865,9 +1001,9 @@ client.on(Events.InteractionCreate, async interaction => {
                 
                 const member = await getMemberByID(client, userID);
 
-                // Skip if member do not exist
+                // Skip if member does not exist
                 if (member == "") {
-                    console.log(`❗️ User ${userID} is no registered on this server`)
+                    console.log(`❗️ User ${userID} is not registered on this server`)
                     continue;
                 }
 
@@ -902,9 +1038,9 @@ client.on(Events.InteractionCreate, async interaction => {
                 var userID = getIDFromUser(allUsers[i]);
                 const member = await getMemberByID(client, userID);
 
-                // Skip if member do not exist
+                // Skip if member does not exist
                 if (member == "") {
-                    console.log(`❗️ Heartbeat from ID ${userID} is no registered on this server`)
+                    console.log(`❗️ Heartbeat from ID ${userID} is not registered on this server`)
                     continue;
                 }
 
@@ -921,14 +1057,13 @@ client.on(Events.InteractionCreate, async interaction => {
 
             await sendReceivedMessage(client, activityOutput, interaction);
         }
-
-        // GENERATE USERNAMES COMMAND
+// GENERATE USERNAMES COMMAND
         if(interaction.commandName === `generateusernames`){
 
             await interaction.deferReply();
-            const text_incorrectPrefix = localize("Le préfixe doit être composé de 4 Lettres","The prefix needs to be 4 letters");
-            const text_incorrectParameters = localize("Paramètres incorrects, entre prefix ET keywords","Incorrect parameters, write prefix AND keyworks");
-            const text_listGenerated = localize("Nouvelle liste d'usernames generé :","New usernames.txt list generated :");
+            const text_incorrectPrefix = localize("Le préfixe doit être composé de 4 Lettres","The prefix must be 4 letters");
+            const text_incorrectParameters = localize("Paramètres incorrects, entre prefix ET keywords","Incorrect parameters — please enter both a prefix and keywords");
+            const text_listGenerated = localize("Nouvelle liste d'usernames generé :","New usernames.txt list generated:");
 
             const prefix = interaction.options.getString(`prefix`).toUpperCase();
             var keyWords = interaction.options.getString(`keywords`);
@@ -974,7 +1109,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     }
                 }
 
-                const fullName = prefix + "O" + generatedWord; // I = separator as it seems adbShell.StdIn.WriteLine can't input special characters 
+                const fullName = prefix + "O" + generatedWord; // O = separator as it seems adbShell.StdIn.WriteLine can't input special characters 
                 if (!forbiddenWords.some(word => fullName.includes(word))) {
                     content = content + fullName + " \n";
                 }
@@ -988,15 +1123,14 @@ client.on(Events.InteractionCreate, async interaction => {
                 }]
             })
         }
-
-        // SET AVERAGE INSTANCES COMMAND
+// SET AVERAGE INSTANCES COMMAND
         if(interaction.commandName === `setaverageinstances`){
 
             await interaction.deferReply();
             const amount = interaction.options.getInteger(`amount`);
 
-            const text_instancesSetTo = localize("Nombre d'instance moyenne défini à","Average amount of instances set to");
-            const text_incorrectAmount = localize("Petit clown va, entre ton vrai nombre d'instances","You little clown, enter your real number of instances");
+            const text_instancesSetTo = localize("Nombre d'instance moyenne défini à","Average number of instances set to");
+            const text_incorrectAmount = localize("Petit clown va, entre ton vrai nombre d'instances","Nice try — please enter your real instance count");
             const text_for = localize("pour","for");
 
             if(amount < 1 || amount > 100){
@@ -1013,7 +1147,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
             await interaction.deferReply();        
             const text_addGP = localize("Ajout d\'un GP pour","Add a GP for");
-            const text_missingPerm = localize("n\'a pas les permissions d\'Admin","do not have Admin permissions");
+            const text_missingPerm = localize("n\'a pas les permissions d\'Admin","does not have Admin permissions");
             
             if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
                 return await sendReceivedMessage(client, `<@${interactionUserID}> ${text_missingPerm}`, interaction);
@@ -1035,8 +1169,8 @@ client.on(Events.InteractionCreate, async interaction => {
 
             await interaction.deferReply();
             const text_removeGP = localize("Retrait d\'un GP pour","Remove a GP for");
-            const text_minimumGP = localize("Nombre de GP déjà au minimum pour","GP Count already at the minimum value for");
-            const text_missingPerm = localize("n\'a pas les permissions d\'Admin","do not have Admin permissions");
+            const text_minimumGP = localize("Nombre de GP déjà au minimum pour","GP count is already at the minimum for");
+            const text_missingPerm = localize("n\'a pas les permissions d\'Admin","does not have Admin permissions");
 
             if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
                 return await sendReceivedMessage(client, `<@${interactionUserID}> ${text_missingPerm}`, interaction);
@@ -1057,15 +1191,14 @@ client.on(Events.InteractionCreate, async interaction => {
                 await sendReceivedMessage(client, `${text_minimumGP} **<@${interactionUserID}>**`, interaction);
             }
         }
-
-        // SET PREFIX COMMAND
+// SET PREFIX COMMAND
         if(interaction.commandName === `setprefix`){
 
             await interaction.deferReply();
             const prefix = interaction.options.getString(`prefix`).toUpperCase();
 
             const text_instancesSetTo = localize("Préfixe défini à","Prefix set to");
-            const text_incorrectLength = localize("Le Préfixe doit être composé d'exactement 4 lettres","The Prefix must consist of exactly 4 letters");
+            const text_incorrectLength = localize("Le Préfixe doit être composé d'exactement 4 lettres","The prefix must be exactly 4 letters");
             const text_otherPrefixe = localize("L'autre préfixe existant","The other existing prefix");
             const text_tooSimilar = localize("s'apparente trop à","is too similar to");
             const text_for = localize("pour","for");
@@ -1093,70 +1226,266 @@ client.on(Events.InteractionCreate, async interaction => {
                 await sendReceivedMessage(client, text_instancesSetTo + ` \"**${prefix}**\" ` + text_for + ` **<@${interactionUserID}>**`, interaction);
             }
         }
-    }
+        
+        // REFRESH GP LIST COMMAND
+        if(interaction.commandName === `refreshgplist`){
+            await interaction.deferReply();
+            const text_listRefreshed = localize(`**Liste des GP rafraîchie dans <#${channelID_GPTrackingList}>**`, `**GP list refreshed in <#${channelID_GPTrackingList}>**`);
+
+            await sendReceivedMessage(client, text_listRefreshed, interaction, delayMsgDeleteState);
+            await updateGPTrackingList(client);
+        }
+        
+        // NOSHOW COMMAND
+        if(interaction.commandName === `noshow`){
+            await interaction.deferReply();
+            
+            const slots = interaction.options.getInteger(`slots`);
+            const friends = interaction.options.getInteger(`friends`);
+            
+            const text_invalidRange = localize("Les valeurs doivent être positives", "Values must be positive");
+            const text_noshowAdded = localize("NoShow enregistré", "NoShow recorded");
+            
+            // Validate input
+            if(slots < 0 || friends < 0) {
+                return await sendReceivedMessage(client, text_invalidRange, interaction);
+            }
+            
+            const thread = client.channels.cache.get(interaction.channelId);
+            
+            try {
+                // Get the first message to extract godpack info
+                const initialMessage = await getOldestMessage(thread);
+                const godpackId = extractGodpackIdFromMessage(initialMessage);
+                
+                if(!godpackId) {
+                    return await sendReceivedMessage(client, 
+                        localize("ID de Godpack non trouvé dans ce thread", "Godpack ID not found in this thread"), 
+                        interaction);
+                }
+                
+                // Add the noshow test record
+                const probability = await addNoShow(guildID, godpackId, interaction.user.id, slots, friends);
+                
+                await sendReceivedMessage(client, 
+                    `${text_noshowAdded} - ${localize("Probabilité restante", "Remaining probability")}: ${probability.toFixed(2)}%`, 
+                    interaction);
+                
+                // Update GP tracking list if applicable
+                await updateGPTrackingList(client);
+            } catch (error) {
+                console.error('Error in noshow command:', error);
+                await sendReceivedMessage(client, 
+                    localize("Une erreur s'est produite", "An error occurred"), 
+                    interaction);
+            }
+        }
+// RESET TEST COMMAND
+        if(interaction.commandName === `resettest`){
+            await interaction.deferReply();
+            
+            const thread = client.channels.cache.get(interaction.channelId);
+            
+            try {
+                // Get the first message to extract godpack info
+                const initialMessage = await getOldestMessage(thread);
+                const godpackId = extractGodpackIdFromMessage(initialMessage);
+                
+                if(!godpackId) {
+                    return await sendReceivedMessage(client, 
+                        localize("ID de Godpack non trouvé dans ce thread", "Godpack ID not found in this thread"), 
+                        interaction);
+                }
+                
+                // Reset the test records for this user and godpack
+                const probability = await resetTest(guildID, godpackId, interaction.user.id);
+                
+                await sendReceivedMessage(client, 
+                    localize(`Tests réinitialisés - Probabilité restante: ${probability.toFixed(2)}%`, 
+                            `Tests reset - Remaining probability: ${probability.toFixed(2)}%`), 
+                    interaction);
+                
+                // Update GP tracking list if applicable
+                await updateGPTrackingList(client);
+            } catch (error) {
+                console.error('Error in resettest command:', error);
+                await sendReceivedMessage(client, 
+                    localize("Une erreur s'est produite", "An error occurred"), 
+                    interaction);
+            }
+        }
+
+        // TEST SUMMARY COMMAND
+        if(interaction.commandName === `testsummary`){
+            await interaction.deferReply();
+            
+            const thread = client.channels.cache.get(interaction.channelId);
+            
+            try {
+                // Get the first message to extract godpack info
+                const initialMessage = await getOldestMessage(thread);
+                const godpackId = extractGodpackIdFromMessage(initialMessage);
+                
+                if(!godpackId) {
+                    return await sendReceivedMessage(client, 
+                        localize("ID de Godpack non trouvé dans ce thread", "Godpack ID not found in this thread"), 
+                        interaction);
+                }
+                
+                // Get a summary of all tests for this godpack
+                const summary = await getTestSummary(guildID, godpackId);
+                
+                await sendReceivedMessage(client, summary, interaction);
+            } catch (error) {
+                console.error('Error in testsummary command:', error);
+                await sendReceivedMessage(client, 
+                    localize("Une erreur s'est produite", "An error occurred"), 
+                    interaction);
+            }
+        }
+}
     catch(error){
         console.error('❌ ERROR - Crash Prevented\n', error);
     }
 });
 
 client.on("messageCreate", async (message) => {
-
     const guild = await getGuild(client);
 
     // Do never continue if the author is the bot, that should not filter webhooks
     if (message.author.id === client.user.id) return;
 
-    if (message.channel.id === channelID_Webhook)
-    {
-        //Execute when screen is posted
-        if (message.attachments.first() != undefined && !message.content.toLowerCase().includes("invalid") && message.content.toLowerCase().includes("god pack found") ) {
+    if (message.channel.id === channelID_Webhook) {
+        console.log(`Processing webhook message: ${message.content}`);
 
-            var GPInfo = extractGPInfo(message.content);
-
-            var ownerID = GPInfo.ownerID;
-            var accountName = GPInfo.accountName;
-            var accountID = GPInfo.accountID;
-            var twoStarsRatio = GPInfo.twoStarRatio;
-            var packAmount = GPInfo.packAmount;
-            var packBoosterType = GPInfo.packBoosterType;
-
-            var titleName = `${accountName} [${packAmount}P][${twoStarsRatio}/5]`;
+        // Check if message has attachment and is not invalid
+        if (message.attachments.first() != undefined && !message.content.toLowerCase().includes("invalid")) {
             
-            if(!packBoosterType.includes("Shining")){
-                if(twoStarsRatio <= forceSkipMin2Stars && packAmount > forceSkipMinPacks){return;}
+            // Check if this is a God Pack message
+            if (message.content.toLowerCase().includes("god pack found")) {
+                console.log("Processing God Pack message");
+                
+                // Use existing God Pack handling code
+                var GPInfo = extractGPInfo(message.content);
+                var ownerID = GPInfo.ownerID;
+                var accountName = GPInfo.accountName;
+                var accountID = GPInfo.accountID;
+                var twoStarsRatio = GPInfo.twoStarRatio;
+                var packAmount = GPInfo.packAmount;
+                var packBoosterType = GPInfo.packBoosterType;
+
+                var titleName = `${accountName} [${packAmount}P][${twoStarsRatio}/5]`;
+                
+                if(!packBoosterType.includes("Shining")){
+                    if(twoStarsRatio <= forceSkipMin2Stars && packAmount > forceSkipMinPacks){return;}
+                }
+
+                // Get the appropriate channel for this pack type
+                const targetChannel = await getPackSpecificChannel(packBoosterType);
+                
+                await createForumPost(client, message, targetChannel, "GodPack", titleName, ownerID, accountID, packAmount, packBoosterType);
+                
+                // Update GP tracking list after a new GP is found
+                await updateGPTrackingList(client);
             }
+// Handle any other card types that contain "found by"
+            else if (message.content.toLowerCase().includes("found by")) {
+                console.log("Processing other card message");
+                
+                // Extract information with regex patterns
+                const regexOwnerID = /<@(\d+)>/;
+                const regexFoundBy = /([A-Za-z\s]+) found by (\S+)/i; // Captures card type and account name
+                const regexAccountID = /\((\d+)\)/;
+                const regexPackInfo = /\((\d+) packs, ([^)]+)\)/;
+                
+                // Apply regex patterns
+                const ownerIDMatch = message.content.match(regexOwnerID);
+                const foundByMatch = message.content.match(regexFoundBy);
+                const accountIDMatches = message.content.match(regexAccountID);
+                const packInfoMatch = message.content.match(regexPackInfo);
+                
+                // Debug logging
+                console.log("Regex matches:");
+                console.log("- Owner ID match:", ownerIDMatch);
+                console.log("- Found By match:", foundByMatch);
+                console.log("- Account ID match:", accountIDMatches);
+                console.log("- Pack info match:", packInfoMatch);
+                
+                // Extract the data
+                const ownerID = ownerIDMatch ? ownerIDMatch[1] : "0000000000000000";
+                let cardType = "Unknown";
+                let accountName = "NoAccountName";
+                
+                if (foundByMatch && foundByMatch.length >= 3) {
+                    cardType = foundByMatch[1].trim(); // "Full Art", "Rainbow", "Trainer", etc.
+                    accountName = foundByMatch[2];
+                }
+                
+                // Get the first match for account ID (should be the first parenthesis)
+                const accountID = accountIDMatches && accountIDMatches.length > 0 ? 
+                                 accountIDMatches[1] : "0000000000000000";
+                
+                // Extract pack amount and pack type
+                let packAmount = "1";
+                let packBoosterType = "Mewtwo";  // Default to Mewtwo if not found
+                
+                if (packInfoMatch && packInfoMatch.length >= 3) {
+                    packAmount = packInfoMatch[1];
+                    packBoosterType = packInfoMatch[2];
+                }
+                
+                console.log(`Card type: ${cardType}`);
+                console.log(`Extracted info - Owner: ${ownerID}, Name: ${accountName}, ID: ${accountID}`);
+                console.log(`Pack info - Amount: ${packAmount}, Type: ${packBoosterType}`);
+                
+                // Format the title
+                var titleName = `${accountName} [${packAmount}P]`;
+                
+                // Get the appropriate channel for this pack type
+                console.log(`Looking for channel for pack type: ${packBoosterType}`);
+                const targetChannel = await getPackSpecificChannel(packBoosterType);
+                console.log(`Selected channel: ${targetChannel}`);
+                
+                // Create the forum post
+                console.log(`Creating forum post in channel ${targetChannel}`);
+                await createForumPost(client, message, targetChannel, cardType, titleName, ownerID, accountID, packAmount, packBoosterType);
+                
+                // Update GP tracking list after a new special card is found
+                await updateGPTrackingList(client);
+            }
+// Handle the old format of Double messages
+            else if (message.content.toLowerCase().includes("double")) {
+                if(channelID_2StarVerificationForum == ""){return;}
 
-            await createForumPost(client, message, channelID_GPVerificationForum, "GodPack", titleName, ownerID, accountID, packAmount);
+                var GPInfo = extractDoubleStarInfo(message.content);
+
+                var ownerID = GPInfo.ownerID;
+                var accountName = GPInfo.accountName;
+                var accountID = GPInfo.accountID;
+                var packAmount = GPInfo.packAmount;
+
+                var titleName = `${accountName} [${packAmount}P]`;
+
+                await createForumPost(client, message, channelID_2StarVerificationForum, "Double 2Star", titleName, ownerID, accountID, packAmount);
+                
+                // Update GP tracking list after a new double star is found
+                await updateGPTrackingList(client);
+            }
+            else {
+                console.log(`Unrecognized message format: ${message.content.substring(0, 100)}`);
+            }
         }
-
-        //Execute when screen is posted
-        else if (message.attachments.first() != undefined && !message.content.toLowerCase().includes("invalid") && message.content.toLowerCase().includes("double") ) {
-
-            if(channelID_2StarVerificationForum == ""){return;}
-
-            var GPInfo = extractDoubleStarInfo(message.content);
-
-            var ownerID = GPInfo.ownerID;
-            var accountName = GPInfo.accountName;
-            var accountID = GPInfo.accountID;
-            var packAmount = GPInfo.packAmount;
-
-            var titleName = `${accountName} [${packAmount}P]`;
-
-            await createForumPost(client, message, channelID_2StarVerificationForum, "Double 2Star", titleName, ownerID, accountID, packAmount);
-        }
-
         else if (message.author.bot && message.content.toLowerCase().includes("invalid")) {
             await addServerGP(attrib_ineligibleGP, message);
         }
     }
-
+    
     if (message.channel.id === channelID_Heartbeat)
     {
-        const text_WrongHB = localize("Quelqu'un a mal configuré ses paramètres Heartbeat","Someone missed up their Heartbeat settings");
+        const text_WrongHB = localize("Quelqu'un a mal configuré ses paramètres Heartbeat","Heartbeat settings are incorrectly configured.");
         const text_CorrectInput = localize(
             "Veuillez vérifier que vous avez bien entré votre **DiscordID** sur le script AHK dans l'onglet Discord Heartbeat Name, ca devrait ressembler ca : \`\`\`0123456789012345\`\`\` Pour votre PC principal et \`\`\`0123456789012345_YOURPCNAME\`\`\` Pour les autre ordinateurs si vous souhaitez en utiliser plusieurs",
-            "Please verify you had input your **DiscordID** in the AHK script under Discord Heartbeat Name, it should look like this : \`\`\`0123456789012345\`\`\` For your main PC and \`\`\`0123456789012345_YOURPCNAME\`\`\` For others computers if you wish to use multiple"
+            "Please make sure you've entered your **DiscordID** correctly in the AHK script under the Discord Heartbeat Name. It should look like this for your main PC: \`\`\`0123456789012345\`\`\` And like this for other computers (if using multiple): \`\`\`0123456789012345_YOURPCNAME\`\`\`"
         );
 
         var heartbeatDatas = message.content.split("\n");
@@ -1164,22 +1493,22 @@ client.on("messageCreate", async (message) => {
         const firstLineSplit = firstLine.split("_");
         const userID = firstLineSplit[0];
 
-        // I At this time it seems that discordID are 17 to 19 length but it costs nothing to keep a little margin
+        // At this time it seems that discordID are 17 to 19 characters in length but it costs nothing to keep a little margin
         if(userID.length < 17 || userID.length > 20 || !isNumbers(userID)){
             return await message.reply(`${text_WrongHB} **( ${userID} )**\n${text_CorrectInput}`);
         }
 
         const member = await getMemberByID(client, userID);
 
-        // Skip if member do not exist
+        // Skip if member does not exist
         if (member == "") {
-            console.log(`❗️ Heartbeat from ID ${userID} is no registered on this server`)
+            console.log(`❗️ Heartbeat from ID ${userID} is not registered on this server`)
             return;
         }
 
         var userUsername = member.user.username;
-        
-        if(firstLineSplit.length <= 1 ) { // If ID do not have underscore
+
+if(firstLineSplit.length <= 1 ) { // If ID does not have underscore
 
             if(await doesUserProfileExists(userID, userUsername)){
 
@@ -1267,15 +1596,15 @@ client.on("messageCreate", async (message) => {
                     if(mainInactive && inactiveIfMainOffline && !userState == "farm"){
                         await setUserAttribValue( userID, userUsername, attrib_UserState, "inactive");
                         sendIDs(client);
-                        // And prevent him that he have been kicked
-                        const text_haveBeenKicked = localize("a été kick des rerollers actifs car son Main est Offline"," have been kicked out of active rerollers due to Main being Offline");
+                        // And notify them that they have been kicked
+                        const text_haveBeenKicked = localize("a été kick des rerollers actifs car son Main est Offline"," has been kicked out of active rerollers due to Main being Offline");
                         sendChannelMessage(client, channelID_Commands, `<@${userID}> ${text_haveBeenKicked}`)
                         console.log(`✖️ Kicked ${userUsername} - Main was Offline`);
                     }
                 }
             }
         }
-        else{ // If ID have underscore
+else{ // If ID has underscore
 
             const subSystemName = firstLineSplit[1];
 
@@ -1322,7 +1651,7 @@ client.on("messageCreate", async (message) => {
                         await setUserAttribValue( userID, userUsername, attrib_TotalPacksFarm, parseFloat(totalPacksFarm) + diffPacks);
                     }
                 }
-                
+
                 await setUserSubsystemAttribValue( userID, userUsername, subSystemName, attrib_DiffPacksSinceLastHB, diffPacks);
                 await setUserSubsystemAttribValue( userID, userUsername, subSystemName, attrib_SessionTime, time);
                 await setUserSubsystemAttribValue( userID, userUsername, subSystemName, attrib_SessionPacksOpened, packs);
@@ -1338,8 +1667,8 @@ client.on("messageCreate", async (message) => {
                     if(mainInactive && inactiveIfMainOffline && !userState == "farm"){
                         await setUserAttribValue( userID, userUsername, attrib_UserState, "inactive");
                         sendIDs(client);
-                        // And prevent him that he have been kicked
-                        const text_haveBeenKicked = localize("a été kick des rerollers actifs car son Main est Offline"," have been kicked out of active rerollers due to Main being Offline");
+                        // And notify them that they have been kicked
+                        const text_haveBeenKicked = localize("a été kick des rerollers actifs car son Main est Offline"," has been kicked out of active rerollers due to Main being Offline");
                         sendChannelMessage(client, channelID_Commands, `<@${userID}> ${text_haveBeenKicked}`)
                         console.log(`✖️ Kicked ${userUsername} - Main was Offline`);
                     }

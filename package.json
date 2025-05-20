@@ -14,7 +14,11 @@
     "lodash": "^4.17.21",
     "lodash.snakecase": "^4.1.1",
     "magic-bytes.js": "^1.10.0",
+    "mathjs": "^11.8.0",
+    "node-schedule": "^2.1.1",
     "octokit": "^4.1.1",
+    "sqlite": "^4.2.1",
+    "sqlite3": "^5.1.6",
     "toad-cache": "^3.7.0",
     "ts-mixer": "^6.0.4",
     "tslib": "^2.8.1",
@@ -39,5 +43,6 @@
     "url": "https://github.com/TheThobi/PTCGPRerollManager/issues"
   },
   "homepage": "https://github.com/TheThobi/PTCGPRerollManager#readme",
-  "description": ""
+  "description": "![XlOCujH](https://github.com/user-attachments/assets/12eedef1-4237-4928-b175-288aea66d72f)",
+  "devDependencies": {}
 }
