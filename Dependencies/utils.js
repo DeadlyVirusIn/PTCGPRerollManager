@@ -189,6 +189,7 @@ async function sendChannelMessage(client, channelID, msgContent, timeout = 0) {
 async function bulkDeleteMessages(channel, numberOfMessages) {
     try {
         var totalDeleted = 0;
+        const twoWeeksAgo = Date.now() - (14 * 24 * 60 * 60 * 1000); // 14 days in milliseconds
 
         while (totalDeleted < numberOfMessages) {
             const remaining = numberOfMessages - totalDeleted;
@@ -196,17 +197,91 @@ async function bulkDeleteMessages(channel, numberOfMessages) {
 
             const fetchedMessages = await channel.messages.fetch({ limit });
 
-            const messagesToDelete = fetchedMessages.filter(msg => !msg.pinned);
-
-            if (messagesToDelete.size === 0) {
+            if (fetchedMessages.size === 0) {
                 break;
             }
 
-            await channel.bulkDelete(messagesToDelete);
-            totalDeleted += messagesToDelete.size;
+            // Filter out pinned messages and messages older than 14 days
+            const messagesToDelete = fetchedMessages.filter(msg => {
+                return !msg.pinned && msg.createdTimestamp > twoWeeksAgo;
+            });
+
+            if (messagesToDelete.size === 0) {
+                console.log('⚠️ No deletable messages found (all are pinned or older than 14 days)');
+                break;
+            }
+
+            try {
+                // If only one message, use single delete instead of bulk delete
+                if (messagesToDelete.size === 1) {
+                    const message = messagesToDelete.first();
+                    try {
+                        await message.delete();
+                        totalDeleted += 1;
+                        console.log(`✅ Deleted 1 message individually`);
+                    } catch (deleteError) {
+                        if (deleteError.code === 10008) {
+                            console.log('⚠️ Message already deleted, skipping...');
+                            totalDeleted += 1; // Count as processed to avoid infinite loop
+                        } else {
+                            console.error('❌ Error deleting individual message:', deleteError.message);
+                        }
+                    }
+                } else {
+                    // Use bulk delete for multiple messages
+                    const deletedMessages = await channel.bulkDelete(messagesToDelete, true); // true = filterOld
+                    totalDeleted += deletedMessages.size;
+                    console.log(`✅ Bulk deleted ${deletedMessages.size} messages`);
+                }
+            } catch (bulkError) {
+                if (bulkError.code === 10008) {
+                    console.log('⚠️ Some messages were already deleted, continuing...');
+                    totalDeleted += messagesToDelete.size; // Count as processed
+                } else if (bulkError.code === 50013) {
+                    console.error('❌ Missing permissions to delete messages');
+                    break;
+                } else if (bulkError.code === 50034) {
+                    console.log('⚠️ Messages too old for bulk delete, trying individual deletion...');
+                    
+                    // Try deleting each message individually
+                    for (const message of messagesToDelete.values()) {
+                        try {
+                            await message.delete();
+                            totalDeleted += 1;
+                            await wait(0.1); // Small delay between individual deletions
+                        } catch (individualError) {
+                            if (individualError.code === 10008) {
+                                console.log('⚠️ Message already deleted, skipping...');
+                                totalDeleted += 1;
+                            } else {
+                                console.error('❌ Error deleting message individually:', individualError.message);
+                            }
+                        }
+                    }
+                } else {
+                    console.error('❌ Unexpected error during bulk delete:', bulkError.message);
+                    throw bulkError;
+                }
+            }
+
+            // Add a small delay between batches to avoid rate limiting
+            if (totalDeleted < numberOfMessages && messagesToDelete.size > 0) {
+                await wait(0.5);
+            }
         }
+
+        console.log(`✅ Total messages processed: ${totalDeleted}`);
     } catch (error) {
-        console.error('❌ ERROR deleting messages:', error);
+        console.error('❌ ERROR in bulkDeleteMessages:', error.message);
+        
+        // Don't throw the error, just log it to prevent the entire operation from failing
+        if (error.code === 10008) {
+            console.log('⚠️ Some messages were already deleted - this is normal');
+        } else if (error.code === 50013) {
+            console.error('❌ Bot lacks permission to delete messages in this channel');
+        } else {
+            console.error('❌ Unexpected error during message deletion:', error);
+        }
     }
 }
 

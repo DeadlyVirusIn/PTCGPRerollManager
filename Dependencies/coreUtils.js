@@ -2369,22 +2369,37 @@ async function sendStatusHeader(client) {
         if (statusMessages.size > 0) {
             console.log(`🗑️ Found ${statusMessages.size} status messages to delete`);
             
-            // Delete each message individually to be safe
+            // Delete each message individually with error handling
             for (const [id, message] of statusMessages) {
                 try {
                     await message.delete();
                     console.log(`✅ Deleted status message with ID: ${id}`);
                 } catch (error) {
-                    console.log(`❌ Failed to delete message ${id}: ${error.message}`);
+                    if (error.code === 10008) {
+                        console.log(`⚠️ Status message ${id} was already deleted`);
+                    } else if (error.code === 50013) {
+                        console.log(`❌ No permission to delete message ${id}`);
+                    } else {
+                        console.log(`❌ Failed to delete message ${id}: ${error.message}`);
+                    }
                 }
                 // Add a small delay to avoid rate limits
-                await wait(0.5);  // Using your existing wait function with 0.5 seconds
+                await wait(0.5);
             }
         } else {
             console.log("ℹ️ No previous status messages found to delete");
         }
     } catch (error) {
-        console.error('❌ Error finding/deleting status messages:', error);
+        if (error.code === 50001) {
+            console.error('❌ Bot lacks access to the commands channel');
+        } else if (error.code === 50013) {
+            console.error('❌ Bot lacks permission to read message history');
+        } else {
+            console.error('❌ Error finding/deleting status messages:', error.message);
+        }
+        
+        // Continue with creating new status header even if deletion failed
+        console.log("ℹ️ Continuing with status header creation despite deletion errors...");
     }
     
     // Now create and send the new status header
@@ -2436,9 +2451,12 @@ ${canPeopleLeech ? `${colorText("Leech / Only Main", "pink")} - ✅Friend Reques
     const row1 = new ActionRowBuilder().addComponents(buttonActive, buttonInactive, buttonFarm, buttonLeech);
     const row2 = new ActionRowBuilder().addComponents(buttonRefreshStats);
 
-    await channel_IDs.send({ embeds: [embedStatusChange], components: [row1, row2] });
-    
-    console.log("☑️📝 Done updating Status Header");
+    try {
+        await channel_IDs.send({ embeds: [embedStatusChange], components: [row1, row2] });
+        console.log("☑️📝 Done updating Status Header");
+    } catch (error) {
+        console.error("❌ Error sending new status header:", error.message);
+    }
 }
 async function inactivityCheck(client) {
     console.log("👀 Checking inactivity...");
