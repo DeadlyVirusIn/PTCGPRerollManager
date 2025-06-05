@@ -7,11 +7,19 @@ import {
     antiCheatRate,
     channelID_Commands,
     channelID_UserStats,
-    channelID_GPVerificationForum,
     channelID_2StarVerificationForum,
     channelID_Webhook,
     channelID_Heartbeat,
     channelID_AntiCheat,
+    channelID_MewtwoVerificationForum,
+    channelID_CharizardVerificationForum,
+    channelID_PikachuVerificationForum,
+    channelID_MewVerificationForum,
+    channelID_DialgaVerificationForum,
+    channelID_PalkiaVerificationForum,
+    channelID_ArceusVerificationForum,
+    channelID_ShiningVerificationForum,
+    channelID_BuzzwoleVerificationForum,
     text_verifiedLogo,
     text_likedLogo,
     text_waitingLogo,
@@ -40,9 +48,9 @@ function formatMinutesToDays(minutes) {
 
 function sumIntArray( arrayNumbers ) {
     return arrayNumbers
-      .filter(item => item !== undefined) // Filtrer les valeurs undefined
-      .map(Number) // Convertir les chaînes en nombres
-      .reduce((acc, curr) => acc + curr, 0); // Additionner les nombres
+      .filter(item => item !== undefined) // Filter undefined values
+      .map(Number) // Convert strings to numbers
+      .reduce((acc, curr) => acc + curr, 0); // Add the numbers
   }
 
 function sumFloatArray( arrayNumbers ) {
@@ -81,9 +89,9 @@ function replaceLastOccurrence(str, search, replace) {
 }
 
 function replaceMissCount(str, newCount) {
-    // Utilisez une expression régulière pour trouver le nombre à l'intérieur des crochets
+    // Use a regular expression to find the number inside the brackets
     const regex = /\[ (\d+) miss \/ (\d+) \]/;
-    // Remplacez le nombre à l'intérieur des crochets par le nouveau nombre tout en conservant le deuxième nombre
+    // Replace the number inside the brackets with the new number while keeping the second number
     return str.replace(regex, (match, p1, p2) => `[ ${newCount} miss / ${p2} ]`);
 }
 
@@ -105,13 +113,13 @@ function isNumbers( input ){
 }
 
 function convertMnToMs(minutes) {
-    // 1 minute = 60,000 millisecondes
+    // 1 minute = 60,000 milliseconds
     const milliseconds = minutes * 60000;
     return milliseconds;
 }
 
 function convertMsToMn(milliseconds) {
-    // 1 minute = 60,000 millisecondes
+    // 1 minute = 60,000 milliseconds
     const minutes = milliseconds / 60000;
     return minutes;
 }
@@ -138,10 +146,10 @@ async function sendReceivedMessage(client, msgContent, interaction = undefined, 
                     if (fetchedMessage) {
                         await fetchedMessage.delete();
                     } else {
-                        console.log('❗️ Tried to delete inexistant message');
+                        console.log('❗️ Tried to delete nonexistent message');
                     }
                 } catch {
-                    console.log('❗️ Tried to delete inexistant message');
+                    console.log('❗️ Tried to delete nonexistent message');
                 }
             }, parseFloat(timeout)*1000);
         }
@@ -165,10 +173,10 @@ async function sendChannelMessage(client, channelID, msgContent, timeout = 0) {
                         if (fetchedMessage) {
                             await fetchedMessage.delete();
                         } else {
-                            console.log('❗️ Tried to delete inexistant message');
+                            console.log('❗️ Tried to delete nonexistent message');
                         }
                     } catch {
-                        console.log('❗️ Tried to delete inexistant message');
+                        console.log('❗️ Tried to delete nonexistent message');
                     }
                 }, timeout * 1000);
             });
@@ -292,7 +300,7 @@ async function getOldestMessage( channel ){
             return ""
         }
     } catch (error) {
-        console.log('❌ ERROR TRYING TO ACCES OLDER MESSAGE');
+        console.log('❌ ERROR TRYING TO ACCESS OLDER MESSAGE');
     }    
 }
 
@@ -305,7 +313,7 @@ function replaceAnyLogoWith(text, newLogo) {
     return editedText;
 }
 
-// Replace caracters that looks the same
+// Replace characters that look the same
 function normalizeOCR(str){
     const replacements = { 'D': 'O', 'B': 'O', '0': 'O', '1': 'I', 'l': 'I' };
     return str.toUpperCase().split('').map(char => replacements[char] || char).join('');

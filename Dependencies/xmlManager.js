@@ -610,10 +610,7 @@ async function getServerDataGPs( type ){
 
 // =============================================== Others ===============================================
 
-
-
-async function getActiveUsers( includeFarmers = false, includeLeechers = false, fallbackValue = "" ) {
-
+async function getActiveUsers( includeFarmers = false, includeLeechers = false, fallbackValue = [] ) { // ❌ Change fallbackValue from "" to []
     try{
         // ==== ASYNC LOCK READ ==== //
         var result = "";
@@ -624,20 +621,21 @@ async function getActiveUsers( includeFarmers = false, includeLeechers = false, 
                 console.log('❌ ERROR trying to read fileAsync with lock');
         }});
 
+        var ActiveUsers = []; // ✅ Initialize as empty array
+
         if (result.root && result.root.user && result.root.user.length > 0){
-            var ActiveUsers = result.root.user.filter( user => {
-
+            ActiveUsers = result.root.user.filter( user => {
                 if(user[attrib_UserState]){
-
                     const state = user[attrib_UserState][0];
                     return state === 'active' ||
                            (includeFarmers && state === 'farm') ||
                            (includeLeechers && state === 'leech');        
                 }
+                return false; // ✅ Add explicit return for users without state
             });
         }
         
-        return ActiveUsers;
+        return ActiveUsers; // ✅ Now always returns an array
     }
     catch {
         console.log('❌ ERROR trying to read users database, please add users');
