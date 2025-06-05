@@ -1394,7 +1394,7 @@ async function sendIDs(client, updateServer = true) {
     }
 }
 
-// GP Tracking List Function (Fixed for Discord 2000 character limit)
+// GP Tracking List Function (Fixed for Discord 2000 character limit) - Version 2
 async function updateGPTrackingList(client) {
     console.log("📝 Updating GP Tracking List...");
     
@@ -1503,219 +1503,81 @@ async function updateGPTrackingList(client) {
     aliveGPs.sort((a, b) => a.name.localeCompare(b.name));
     testingGPs.sort((a, b) => a.name.localeCompare(b.name));
     
-    // Function to split long messages into chunks
-    const sendMessageInChunks = async (channel, messages, header) => {
-        if (messages.length === 0) {
-            await channel.send({ content: `${header}No items currently tracked.\n` });
-            return;
-        }
-        
-        let currentMessage = `${header}`;
-        const maxLength = 1900; // Leave buffer below 2000 char limit
-        
-        for (const item of messages) {
-            const itemText = `**[\`[${header.includes('Alive') ? 'Alive' : 'Testing'}]\`](https://discord.com/channels/${guildID}/${item.threadId}) ${item.name}**\n`;
+    console.log(`📊 Found ${aliveGPs.length} alive GPs and ${testingGPs.length} testing GPs`);
+    
+    try {
+        // Handle alive GPs
+        if (aliveGPs.length === 0) {
+            await trackingChannel.send({ content: "✅ **Alive Packs** ✅\nNo alive GPs currently tracked.\n" });
+        } else {
+            let currentMessage = "✅ **Alive Packs** ✅\n";
+            const maxLength = 1800; // Even more conservative limit
             
-            // Check if adding this item would exceed the limit
-            if ((currentMessage + itemText).length > maxLength) {
-                // Send current message and start a new one
-                await channel.send({ content: currentMessage });
-                currentMessage = itemText; // Start new message with current item
-            } else {
-                currentMessage += itemText;
-            }
-        }
-        
-        // Send the last message if there's content
-        if (currentMessage.length > header.length) {
-            await channel.send({ content: currentMessage });
-        }
-    };
-    
-    // Send alive GPs (potentially in multiple messages)
-    await sendMessageInChunks(trackingChannel, aliveGPs, "✅ **Alive Packs** ✅\n");
-    
-    // Add a small delay between message types
-    await wait(0.5);
-    
-    // Send testing GPs (potentially in multiple messages)
-    await sendMessageInChunks(trackingChannel, testingGPs, "🍀 **Testing Packs** 🍀\n");
-    
-    console.log("✅ GP Tracking List updated successfully");
-}
-
-async function updateEligibleIDs(client) {
-    const text_Start = `📜 Updating Eligible IDs...`;
-    const text_Done = `☑️📜 Finished updating Eligible IDs`;
-    console.log(text_Start);
-
-    // Get all pack-specific forums - add the new channels here
-    const packForums = [
-        channelID_MewtwoVerificationForum,
-        channelID_CharizardVerificationForum,
-        channelID_PikachuVerificationForum, 
-        channelID_MewVerificationForum,
-        channelID_DialgaVerificationForum,
-        channelID_PalkiaVerificationForum,
-        channelID_ArceusVerificationForum,
-        channelID_ShiningVerificationForum,
-        channelID_SolgaleoVerificationForum,
-        channelID_LunalaVerificationForum,
-        channelID_BuzzwoleVerificationForum
-    ];
-
-    let idList = "";
-
-    // Process each forum channel
-    for (const forumId of packForums) {
-        if (!forumId) continue; // Skip empty channel IDs
-        
-        try {
-            const forum = await client.channels.cache.get(forumId);
-            if (!forum) {
-                console.log(`⚠️ Warning: Forum channel ${forumId} not found`);
-                continue;
-            }
-            
-            const activeThreads = await forum.threads.fetchActive();
-            
-            for (let thread of activeThreads.threads) {
-                const nestedThread = thread[1];
+            for (const gp of aliveGPs) {
+                const itemText = `**[\`[Alive]\`](https://discord.com/channels/${guildID}/${gp.threadId}) ${gp.name}**\n`;
                 
-                // Check if post contains any validation logo, otherwise skip
-                if (nestedThread.name.includes(text_notLikedLogo) || 
-                   nestedThread.name.includes(text_waitingLogo) || 
-                   nestedThread.name.includes(text_likedLogo) || 
-                   nestedThread.name.includes(text_verifiedLogo)) {
-                    
-                    const initialMessage = await getOldestMessage(nestedThread);
-                    if (!initialMessage || !initialMessage.content) continue;
-                    
-                    const contentSplit = initialMessage.content.split('\n');
-                    
-                    var cleanThreadName = replaceAnyLogoWith(nestedThread.name, "");
-                    var gpPocketName = cleanThreadName.split(" ")[1];
-                    
-                    var gpTwoStarCount = "5/5"; // Consider as a 5/5 in case it's not found to avoid filtering it 
-                    if (!safeEligibleIDsFiltering) { // except if safe filtering is off
-                        var gpTwoStarCountArray = cleanThreadName.match(/\[(\d+\/\d+)\]/);
-                        gpTwoStarCount = gpTwoStarCountArray && gpTwoStarCountArray.length > 1 ? gpTwoStarCountArray[1] : "5/5";
-                    }
-                    
-                    const gpPocketID = contentSplit.find(line => line.includes('ID:'));
-                    
-                    if (gpPocketID != undefined) {
-                        idList += `${gpPocketID.replace("ID:","")} | ${gpPocketName} | ${gpTwoStarCount}\n`;
-                    }
+                // Check if adding this item would exceed the limit
+                if ((currentMessage + itemText).length > maxLength) {
+                    // Send current message and start a new one
+                    await trackingChannel.send({ content: currentMessage });
+                    await wait(0.5); // Small delay to avoid rate limits
+                    currentMessage = itemText; // Start new message with current item
+                } else {
+                    currentMessage += itemText;
                 }
             }
             
-            // Also check archived threads
-            try {
-                const archivedThreads = await forum.threads.fetchArchived();
+            // Send the last message if there's content beyond just the header
+            if (currentMessage.length > "✅ **Alive Packs** ✅\n".length) {
+                await trackingChannel.send({ content: currentMessage });
+            }
+        }
+        
+        // Add delay between sections
+        await wait(0.5);
+        
+        // Handle testing GPs
+        if (testingGPs.length === 0) {
+            await trackingChannel.send({ content: "🍀 **Testing Packs** 🍀\nNo testing GPs currently tracked.\n" });
+        } else {
+            let currentMessage = "🍀 **Testing Packs** 🍀\n";
+            const maxLength = 1800; // Even more conservative limit
+            
+            for (const gp of testingGPs) {
+                const itemText = `**[\`[Testing]\`](https://discord.com/channels/${guildID}/${gp.threadId}) ${gp.name}**\n`;
                 
-                for (let thread of archivedThreads.threads) {
-                    const nestedThread = thread[1];
-                    
-                    // Check if post contains verified logo, since we only care about archived verified threads
-                    if (nestedThread.name.includes(text_verifiedLogo)) {
-                        
-                        const initialMessage = await getOldestMessage(nestedThread);
-                        if (!initialMessage || !initialMessage.content) continue;
-                        
-                        const contentSplit = initialMessage.content.split('\n');
-                        
-                        var cleanThreadName = replaceAnyLogoWith(nestedThread.name, "");
-                        var gpPocketName = cleanThreadName.split(" ")[1];
-                        
-                        var gpTwoStarCount = "5/5"; // Consider as a 5/5 in case it's not found to avoid filtering it 
-                        if (!safeEligibleIDsFiltering) { // except if safe filtering is off
-                            var gpTwoStarCountArray = cleanThreadName.match(/\[(\d+\/\d+)\]/);
-                            gpTwoStarCount = gpTwoStarCountArray && gpTwoStarCountArray.length > 1 ? gpTwoStarCountArray[1] : "5/5";
-                        }
-                        
-                        const gpPocketID = contentSplit.find(line => line.includes('ID:'));
-                        
-                        if (gpPocketID != undefined) {
-                            idList += `${gpPocketID.replace("ID:","")} | ${gpPocketName} | ${gpTwoStarCount}\n`;
-                        }
-                    }
+                // Check if adding this item would exceed the limit
+                if ((currentMessage + itemText).length > maxLength) {
+                    // Send current message and start a new one
+                    console.log(`📤 Sending message chunk (${currentMessage.length} chars)`);
+                    await trackingChannel.send({ content: currentMessage });
+                    await wait(0.5); // Small delay to avoid rate limits
+                    currentMessage = itemText; // Start new message with current item
+                } else {
+                    currentMessage += itemText;
                 }
-            } catch (error) {
-                console.log(`⚠️ Warning: Error fetching archived threads from ${forumId}: ${error}`);
             }
-        } catch (error) {
-            console.log(`⚠️ Warning: Error processing forum ${forumId}: ${error}`);
+            
+            // Send the last message if there's content beyond just the header
+            if (currentMessage.length > "🍀 **Testing Packs** 🍀\n".length) {
+                console.log(`📤 Sending final message chunk (${currentMessage.length} chars)`);
+                await trackingChannel.send({ content: currentMessage });
+            }
         }
-    }
-// Process double star threads as well
-    if (channelID_2StarVerificationForum && addDoubleStarToVipIdsTxt) {
+        
+        console.log("✅ GP Tracking List updated successfully");
+        
+    } catch (error) {
+        console.error("❌ Error sending GP tracking messages:", error);
+        
+        // Fallback: try to send a simple message indicating there was an error
         try {
-            const doubleStarForum = await client.channels.cache.get(channelID_2StarVerificationForum);
-            if (doubleStarForum) {
-                const doubleStarThreads = await doubleStarForum.threads.fetchActive();
-        
-                for (let thread of doubleStarThreads.threads) {
-                    const nestedThread = thread[1];
-            
-                    // Check if post contains any validation logo
-                    if (nestedThread.name.includes(text_notLikedLogo) || 
-                        nestedThread.name.includes(text_waitingLogo) || 
-                        nestedThread.name.includes(text_likedLogo) || 
-                        nestedThread.name.includes(text_verifiedLogo)) {
-            
-                        const initialMessage = await getOldestMessage(nestedThread);
-                        if (!initialMessage || !initialMessage.content) continue;
-                        
-                        const contentSplit = initialMessage.content.split('\n');
-            
-                        const cleanDoubleStarThreadName = replaceAnyLogoWith(nestedThread.name, "");
-                        const doubleStarPocketName = cleanDoubleStarThreadName.split(" ")[1];
-                        var doubleStarCount = "5/5";
-            
-                        if (!safeEligibleIDsFiltering) { // except if safe filtering is off
-                            var gpTwoStarCountArray = cleanDoubleStarThreadName.match(/\[(\d+\/\d+)\]/);
-                            doubleStarCount = gpTwoStarCountArray && gpTwoStarCountArray.length > 1 ? gpTwoStarCountArray[1] : "5/5";
-                        }
-            
-                        const doubleStarPocketID = contentSplit.find(line => line.includes('ID:'));
-                        
-                        if (doubleStarPocketID != undefined) {
-                            idList += `${doubleStarPocketID.replace("ID:","")} | ${doubleStarPocketName} | ${doubleStarCount}\n`;
-                        }
-                    }
-                }
-            }
-        } catch (error) {
-            console.log(`⚠️ Warning: Error processing double star forum: ${error}`);
+            await trackingChannel.send({ 
+                content: "❌ Error updating GP tracking list. Too many items to display at once. Please contact an administrator." 
+            });
+        } catch (fallbackError) {
+            console.error("❌ Even fallback message failed:", fallbackError);
         }
-    }
-
-    console.log(text_Done);
-    
-    // Update the gist with the compiled list
-    await updateGist(idList, gitGistGPName);
-}
-async function markAsDead(client, interaction, optionalText = "") {
-    const text_markAsDead = localize("Godpack marqué comme mort","Godpack marked as dud");
-    const text_alreadyDead = localize("Il est déjà mort et enterré... tu veux vraiment en remettre une couche ?","It's already dead and buried...");
-    
-    const thread = client.channels.cache.get(interaction.channelId);
-
-    if (thread.name.includes(text_deadLogo)) {
-        await sendReceivedMessage(client, `${text_alreadyDead}`, interaction);
-    }
-    else {
-        const newThreadName = replaceAnyLogoWith(thread.name, text_deadLogo);
-    
-        await thread.edit({ name: `${newThreadName}` });
-    
-        await sendReceivedMessage(client, optionalText + text_deadLogo + ` ` + text_markAsDead, interaction);
-    
-        await updateEligibleIDs(client);
-        
-        // Update GP tracking list after marking as dead
-        await updateGPTrackingList(client);
     }
 }
 
@@ -2638,6 +2500,293 @@ async function inactivityCheck(client) {
         sendIDs(client);
     }
 }
+
+// Add these missing functions before your export statement
+
+async function markAsDead(client, interaction, optionalText = "") {
+    const text_markAsDead = localize("Godpack marqué comme mort","Godpack marked as dud");
+    const text_alreadyDead = localize("Il est déjà mort et enterré... tu veux vraiment en remettre une couche ?","It's already dead and buried...");
+    
+    const thread = client.channels.cache.get(interaction.channelId);
+
+    if (thread.name.includes(text_deadLogo)) {
+        await sendReceivedMessage(client, `${text_alreadyDead}`, interaction);
+    }
+    else {
+        const newThreadName = replaceAnyLogoWith(thread.name, text_deadLogo);
+    
+        await thread.edit({ name: `${newThreadName}` });
+    
+        await sendReceivedMessage(client, optionalText + text_deadLogo + ` ` + text_markAsDead, interaction);
+    
+        await updateEligibleIDs(client);
+        
+        // Update GP tracking list after marking as dead
+        await updateGPTrackingList(client);
+    }
+}
+
+async function updateEligibleIDs(client) {
+    const text_Start = `📜 Updating Eligible IDs...`;
+    const text_Done = `☑️📜 Finished updating Eligible IDs`;
+    console.log(text_Start);
+
+    // Get all pack-specific forums - add the new channels here
+    const packForums = [
+        channelID_MewtwoVerificationForum,
+        channelID_CharizardVerificationForum,
+        channelID_PikachuVerificationForum, 
+        channelID_MewVerificationForum,
+        channelID_DialgaVerificationForum,
+        channelID_PalkiaVerificationForum,
+        channelID_ArceusVerificationForum,
+        channelID_ShiningVerificationForum,
+        channelID_SolgaleoVerificationForum,
+        channelID_LunalaVerificationForum,
+        channelID_BuzzwoleVerificationForum
+    ];
+
+    let idList = "";
+
+    // Process each forum channel
+    for (const forumId of packForums) {
+        if (!forumId) continue; // Skip empty channel IDs
+        
+        try {
+            const forum = await client.channels.cache.get(forumId);
+            if (!forum) {
+                console.log(`⚠️ Warning: Forum channel ${forumId} not found`);
+                continue;
+            }
+            
+            const activeThreads = await forum.threads.fetchActive();
+            
+            for (let thread of activeThreads.threads) {
+                const nestedThread = thread[1];
+                
+                // Check if post contains any validation logo, otherwise skip
+                if (nestedThread.name.includes(text_notLikedLogo) || 
+                   nestedThread.name.includes(text_waitingLogo) || 
+                   nestedThread.name.includes(text_likedLogo) || 
+                   nestedThread.name.includes(text_verifiedLogo)) {
+                    
+                    const initialMessage = await getOldestMessage(nestedThread);
+                    if (!initialMessage || !initialMessage.content) continue;
+                    
+                    const contentSplit = initialMessage.content.split('\n');
+                    
+                    var cleanThreadName = replaceAnyLogoWith(nestedThread.name, "");
+                    var gpPocketName = cleanThreadName.split(" ")[1];
+                    
+                    var gpTwoStarCount = "5/5"; // Consider as a 5/5 in case it's not found to avoid filtering it 
+                    if (!safeEligibleIDsFiltering) { // except if safe filtering is off
+                        var gpTwoStarCountArray = cleanThreadName.match(/\[(\d+\/\d+)\]/);
+                        gpTwoStarCount = gpTwoStarCountArray && gpTwoStarCountArray.length > 1 ? gpTwoStarCountArray[1] : "5/5";
+                    }
+                    
+                    const gpPocketID = contentSplit.find(line => line.includes('ID:'));
+                    
+                    if (gpPocketID != undefined) {
+                        idList += `${gpPocketID.replace("ID:","")} | ${gpPocketName} | ${gpTwoStarCount}\n`;
+                    }
+                }
+            }
+            
+            // Also check archived threads
+            try {
+                const archivedThreads = await forum.threads.fetchArchived();
+                
+                for (let thread of archivedThreads.threads) {
+                    const nestedThread = thread[1];
+                    
+                    // Check if post contains verified logo, since we only care about archived verified threads
+                    if (nestedThread.name.includes(text_verifiedLogo)) {
+                        
+                        const initialMessage = await getOldestMessage(nestedThread);
+                        if (!initialMessage || !initialMessage.content) continue;
+                        
+                        const contentSplit = initialMessage.content.split('\n');
+                        
+                        var cleanThreadName = replaceAnyLogoWith(nestedThread.name, "");
+                        var gpPocketName = cleanThreadName.split(" ")[1];
+                        
+                        var gpTwoStarCount = "5/5"; // Consider as a 5/5 in case it's not found to avoid filtering it 
+                        if (!safeEligibleIDsFiltering) { // except if safe filtering is off
+                            var gpTwoStarCountArray = cleanThreadName.match(/\[(\d+\/\d+)\]/);
+                            gpTwoStarCount = gpTwoStarCountArray && gpTwoStarCountArray.length > 1 ? gpTwoStarCountArray[1] : "5/5";
+                        }
+                        
+                        const gpPocketID = contentSplit.find(line => line.includes('ID:'));
+                        
+                        if (gpPocketID != undefined) {
+                            idList += `${gpPocketID.replace("ID:","")} | ${gpPocketName} | ${gpTwoStarCount}\n`;
+                        }
+                    }
+                }
+            } catch (error) {
+                console.log(`⚠️ Warning: Error fetching archived threads from ${forumId}: ${error}`);
+            }
+        } catch (error) {
+            console.log(`⚠️ Warning: Error processing forum ${forumId}: ${error}`);
+        }
+    }
+
+    // Process double star threads as well
+    if (channelID_2StarVerificationForum && addDoubleStarToVipIdsTxt) {
+        try {
+            const doubleStarForum = await client.channels.cache.get(channelID_2StarVerificationForum);
+            if (doubleStarForum) {
+                const doubleStarThreads = await doubleStarForum.threads.fetchActive();
+        
+                for (let thread of doubleStarThreads.threads) {
+                    const nestedThread = thread[1];
+            
+                    // Check if post contains any validation logo
+                    if (nestedThread.name.includes(text_notLikedLogo) || 
+                        nestedThread.name.includes(text_waitingLogo) || 
+                        nestedThread.name.includes(text_likedLogo) || 
+                        nestedThread.name.includes(text_verifiedLogo)) {
+            
+                        const initialMessage = await getOldestMessage(nestedThread);
+                        if (!initialMessage || !initialMessage.content) continue;
+                        
+                        const contentSplit = initialMessage.content.split('\n');
+            
+                        const cleanDoubleStarThreadName = replaceAnyLogoWith(nestedThread.name, "");
+                        const doubleStarPocketName = cleanDoubleStarThreadName.split(" ")[1];
+                        var doubleStarCount = "5/5";
+            
+                        if (!safeEligibleIDsFiltering) { // except if safe filtering is off
+                            var gpTwoStarCountArray = cleanDoubleStarThreadName.match(/\[(\d+\/\d+)\]/);
+                            doubleStarCount = gpTwoStarCountArray && gpTwoStarCountArray.length > 1 ? gpTwoStarCountArray[1] : "5/5";
+                        }
+            
+                        const doubleStarPocketID = contentSplit.find(line => line.includes('ID:'));
+                        
+                        if (doubleStarPocketID != undefined) {
+                            idList += `${doubleStarPocketID.replace("ID:","")} | ${doubleStarPocketName} | ${doubleStarCount}\n`;
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.log(`⚠️ Warning: Error processing double star forum: ${error}`);
+        }
+    }
+
+    console.log(text_Done);
+    
+    // Update the gist with the compiled list
+    await updateGist(idList, gitGistGPName);
+}
+
+async function updateInactiveGPs(client) {
+    const text_Start = `🔍 Checking Inactive GPs...`;
+    const text_Done = `☑️🔍 Finished checking Inactive GPs`;
+    console.log(text_Start);
+    
+    // Get all pack-specific forums - add the new channels here
+    const packForums = [
+        channelID_MewtwoVerificationForum,
+        channelID_CharizardVerificationForum,
+        channelID_PikachuVerificationForum, 
+        channelID_MewVerificationForum,
+        channelID_DialgaVerificationForum,
+        channelID_PalkiaVerificationForum,
+        channelID_ArceusVerificationForum,
+        channelID_ShiningVerificationForum,
+        channelID_SolgaleoVerificationForum, // Added for Solgaleo
+        channelID_LunalaVerificationForum    // Added for Lunala
+    ];
+
+    let removedThreadCount = 0;
+
+    // Process each forum channel
+    for (const forumId of packForums) {
+        if (!forumId) continue; // Skip empty channel IDs
+        
+        try {
+            const forum = await client.channels.cache.get(forumId);
+            if (!forum) {
+                console.log(`⚠️ Warning: Forum channel ${forumId} not found`);
+                continue;
+            }
+            
+            const activeThreads = await forum.threads.fetchActive();
+            
+            for (let [threadId, thread] of activeThreads.threads) {
+                // Calculate the age of the thread in hours
+                const threadAgeHours = (Date.now() - thread.createdTimestamp) / (1000 * 60 * 60);
+
+                // Check if the thread is older than AutoCloseLivePostTime or AutoCloseNotLivePostTime
+                if (
+                    (threadAgeHours > AutoCloseLivePostTime && thread.name.includes(text_verifiedLogo)) || 
+                    (threadAgeHours > AutoCloseNotLivePostTime && !thread.name.includes(text_verifiedLogo)) || 
+                    thread.name.includes(text_deadLogo)
+                ) {
+                    // Mark as dead if not already dead or verified
+                    if (!thread.name.includes(text_deadLogo) && !thread.name.includes(text_verifiedLogo)) {
+                        const newThreadName = replaceAnyLogoWith(thread.name, text_deadLogo);
+                        await thread.edit({ name: `${newThreadName}` });
+                        await wait(1);
+                    }
+                    // Close the thread
+                    await thread.setArchived(true);
+                    console.log(`🔒 Closed thread: ${thread.name} (ID: ${threadId})`);
+
+                    removedThreadCount++;
+                }
+            }
+        } catch (error) {
+            console.log(`⚠️ Warning: Error processing forum ${forumId}: ${error}`);
+        }
+    }
+    
+    // Also check double star forum
+    if (channelID_2StarVerificationForum) {
+        try {
+            const forum = await client.channels.cache.get(channelID_2StarVerificationForum);
+            if (forum) {
+                const activeThreads = await forum.threads.fetchActive();
+                
+                for (let [threadId, thread] of activeThreads.threads) {
+                    // Calculate the age of the thread in hours
+                    const threadAgeHours = (Date.now() - thread.createdTimestamp) / (1000 * 60 * 60);
+
+                    // Check if the thread is older than AutoCloseLivePostTime or AutoCloseNotLivePostTime
+                    if (
+                        (threadAgeHours > AutoCloseLivePostTime && thread.name.includes(text_verifiedLogo)) || 
+                        (threadAgeHours > AutoCloseNotLivePostTime && !thread.name.includes(text_verifiedLogo)) || 
+                        thread.name.includes(text_deadLogo)
+                    ) {
+                        // Mark as dead if not already dead or verified
+                        if (!thread.name.includes(text_deadLogo) && !thread.name.includes(text_verifiedLogo)) {
+                            const newThreadName = replaceAnyLogoWith(thread.name, text_deadLogo);
+                            await thread.edit({ name: `${newThreadName}` });
+                            await wait(1);
+                        }
+                        // Close the thread
+                        await thread.setArchived(true);
+                        console.log(`🔒 Closed thread: ${thread.name} (ID: ${threadId})`);
+
+                        removedThreadCount++;
+                    }
+                }
+            }
+        } catch (error) {
+            console.log(`⚠️ Warning: Error processing double star forum: ${error}`);
+        }
+    }
+
+    console.log(text_Done);
+
+    if (removedThreadCount > 0) {
+        await updateEligibleIDs(client);
+        // Update GP tracking list after archiving inactive GPs
+        await updateGPTrackingList(client);
+    }
+}
+
 // Now export all the functions for use in other modules
 export { 
     getGuild, 
