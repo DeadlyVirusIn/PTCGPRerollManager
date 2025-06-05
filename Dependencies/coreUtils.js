@@ -1394,7 +1394,7 @@ async function sendIDs(client, updateServer = true) {
     }
 }
 
-// GP Tracking List Function (Updated for Solgaleo and Lunala)
+// GP Tracking List Function (Fixed for Discord 2000 character limit)
 async function updateGPTrackingList(client) {
     console.log("📝 Updating GP Tracking List...");
     
@@ -1408,9 +1408,6 @@ async function updateGPTrackingList(client) {
     
     // Clear previous tracking messages
     await bulkDeleteMessages(trackingChannel, 10);
-    
-    // Prepare the message
-    let trackingMessage = `✅ **Alive Packs** ✅\n`;
     
     // Process each forum channel for GPs
     const packForums = [
@@ -1506,138 +1503,47 @@ async function updateGPTrackingList(client) {
     aliveGPs.sort((a, b) => a.name.localeCompare(b.name));
     testingGPs.sort((a, b) => a.name.localeCompare(b.name));
     
-    // Format alive GPs
-    for (const gp of aliveGPs) {
-    	trackingMessage += `**[\`[Alive]\`](https://discord.com/channels/${guildID}/${gp.threadId}) ${gp.name}**\n`;
-    }
+    // Function to split long messages into chunks
+    const sendMessageInChunks = async (channel, messages, header) => {
+        if (messages.length === 0) {
+            await channel.send({ content: `${header}No items currently tracked.\n` });
+            return;
+        }
+        
+        let currentMessage = `${header}`;
+        const maxLength = 1900; // Leave buffer below 2000 char limit
+        
+        for (const item of messages) {
+            const itemText = `**[\`[${header.includes('Alive') ? 'Alive' : 'Testing'}]\`](https://discord.com/channels/${guildID}/${item.threadId}) ${item.name}**\n`;
+            
+            // Check if adding this item would exceed the limit
+            if ((currentMessage + itemText).length > maxLength) {
+                // Send current message and start a new one
+                await channel.send({ content: currentMessage });
+                currentMessage = itemText; // Start new message with current item
+            } else {
+                currentMessage += itemText;
+            }
+        }
+        
+        // Send the last message if there's content
+        if (currentMessage.length > header.length) {
+            await channel.send({ content: currentMessage });
+        }
+    };
     
-    if (aliveGPs.length === 0) {
-        trackingMessage += "No alive GPs currently tracked.\n";
-    }
+    // Send alive GPs (potentially in multiple messages)
+    await sendMessageInChunks(trackingChannel, aliveGPs, "✅ **Alive Packs** ✅\n");
     
-    // Add testing packs section
-    trackingMessage += `\n🍀 **Testing Packs** 🍀\n`;
+    // Add a small delay between message types
+    await wait(0.5);
     
-    // Format testing GPs
-    for (const gp of testingGPs) {
-    	 trackingMessage += `**[\`[Testing]\`](https://discord.com/channels/${guildID}/${gp.threadId}) ${gp.name}**\n`;
-    }
-
-    if (testingGPs.length === 0) {
-        trackingMessage += "No testing GPs currently tracked.\n";
-    }
-    
-    // Send the tracking message
-    await trackingChannel.send({ content: trackingMessage });
+    // Send testing GPs (potentially in multiple messages)
+    await sendMessageInChunks(trackingChannel, testingGPs, "🍀 **Testing Packs** 🍀\n");
     
     console.log("✅ GP Tracking List updated successfully");
 }
-async function updateInactiveGPs(client) {
-    const text_Start = `🔍 Checking Inactive GPs...`;
-    const text_Done = `☑️🔍 Finished checking Inactive GPs`;
-    console.log(text_Start);
-    
-    // Get all pack-specific forums - add the new channels here
-    const packForums = [
-        channelID_MewtwoVerificationForum,
-        channelID_CharizardVerificationForum,
-        channelID_PikachuVerificationForum, 
-        channelID_MewVerificationForum,
-        channelID_DialgaVerificationForum,
-        channelID_PalkiaVerificationForum,
-        channelID_ArceusVerificationForum,
-        channelID_ShiningVerificationForum,
-        channelID_SolgaleoVerificationForum, // Added for Solgaleo
-        channelID_LunalaVerificationForum    // Added for Lunala
-    ];
 
-    let removedThreadCount = 0;
-
-    // Process each forum channel
-    for (const forumId of packForums) {
-        if (!forumId) continue; // Skip empty channel IDs
-        
-        try {
-            const forum = await client.channels.cache.get(forumId);
-            if (!forum) {
-                console.log(`⚠️ Warning: Forum channel ${forumId} not found`);
-                continue;
-            }
-            
-            const activeThreads = await forum.threads.fetchActive();
-            
-            for (let [threadId, thread] of activeThreads.threads) {
-                // Calculate the age of the thread in hours
-                const threadAgeHours = (Date.now() - thread.createdTimestamp) / (1000 * 60 * 60);
-
-                // Check if the thread is older than AutoCloseLivePostTime or AutoCloseNotLivePostTime
-                if (
-                    (threadAgeHours > AutoCloseLivePostTime && thread.name.includes(text_verifiedLogo)) || 
-                    (threadAgeHours > AutoCloseNotLivePostTime && !thread.name.includes(text_verifiedLogo)) || 
-                    thread.name.includes(text_deadLogo)
-                ) {
-                    // Mark as dead if not already dead or verified
-                    if (!thread.name.includes(text_deadLogo) && !thread.name.includes(text_verifiedLogo)) {
-                        const newThreadName = replaceAnyLogoWith(thread.name, text_deadLogo);
-                        await thread.edit({ name: `${newThreadName}` });
-                        await wait(1);
-                    }
-                    // Close the thread
-                    await thread.setArchived(true);
-                    console.log(`🔒 Closed thread: ${thread.name} (ID: ${threadId})`);
-
-                    removedThreadCount++;
-                }
-            }
-        } catch (error) {
-            console.log(`⚠️ Warning: Error processing forum ${forumId}: ${error}`);
-        }
-    }
-    
-    // Also check double star forum
-    if (channelID_2StarVerificationForum) {
-        try {
-            const forum = await client.channels.cache.get(channelID_2StarVerificationForum);
-            if (forum) {
-                const activeThreads = await forum.threads.fetchActive();
-                
-                for (let [threadId, thread] of activeThreads.threads) {
-                    // Calculate the age of the thread in hours
-                    const threadAgeHours = (Date.now() - thread.createdTimestamp) / (1000 * 60 * 60);
-
-                    // Check if the thread is older than AutoCloseLivePostTime or AutoCloseNotLivePostTime
-                    if (
-                        (threadAgeHours > AutoCloseLivePostTime && thread.name.includes(text_verifiedLogo)) || 
-                        (threadAgeHours > AutoCloseNotLivePostTime && !thread.name.includes(text_verifiedLogo)) || 
-                        thread.name.includes(text_deadLogo)
-                    ) {
-                        // Mark as dead if not already dead or verified
-                        if (!thread.name.includes(text_deadLogo) && !thread.name.includes(text_verifiedLogo)) {
-                            const newThreadName = replaceAnyLogoWith(thread.name, text_deadLogo);
-                            await thread.edit({ name: `${newThreadName}` });
-                            await wait(1);
-                        }
-                        // Close the thread
-                        await thread.setArchived(true);
-                        console.log(`🔒 Closed thread: ${thread.name} (ID: ${threadId})`);
-
-                        removedThreadCount++;
-                    }
-                }
-            }
-        } catch (error) {
-            console.log(`⚠️ Warning: Error processing double star forum: ${error}`);
-        }
-    }
-
-    console.log(text_Done);
-
-    if (removedThreadCount > 0) {
-        await updateEligibleIDs(client);
-        // Update GP tracking list after archiving inactive GPs
-        await updateGPTrackingList(client);
-    }
-}
 async function updateEligibleIDs(client) {
     const text_Start = `📜 Updating Eligible IDs...`;
     const text_Done = `☑️📜 Finished updating Eligible IDs`;
