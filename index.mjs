@@ -380,26 +380,32 @@ async function processTradeableCardsWebhook(client, message) {
         const packType = extractPackTypeFromWebhook(message.content);
         console.log(`📦 Detected pack type: ${packType}`);
         
-        // For tradeable cards, extract different info
+        // Updated regex patterns for the new format
         const regexOwnerID = /<@(\d+)>/;
-        const regexFoundBy = /([A-Za-z\s]+) found by (\S+)/i;
+        const regexFoundBy = /Tradeable cards found by (\S+)/i;
         const regexPackInfo = /\((\d+) packs?, ([^)]+)\)/;
         
         const ownerIDMatch = message.content.match(regexOwnerID);
         const foundByMatch = message.content.match(regexFoundBy);
         const packInfoMatch = message.content.match(regexPackInfo);
         
-        const ownerID = ownerIDMatch ? ownerIDMatch[1] : "0000000000000000";
-        let cardType = "Unknown";
-        let accountName = "NoAccountName";
+        console.log("🔍 Regex extraction results:");
+        console.log(`   Owner ID: ${ownerIDMatch ? ownerIDMatch[1] : 'NOT FOUND'}`);
+        console.log(`   Found By: ${foundByMatch ? foundByMatch[1] : 'NOT FOUND'}`);
+        console.log(`   Pack Info: ${packInfoMatch ? packInfoMatch[0] : 'NOT FOUND'}`);
         
-        if (foundByMatch && foundByMatch.length >= 3) {
-            cardType = foundByMatch[1].trim();
-            accountName = foundByMatch[2];
+        const ownerID = ownerIDMatch ? ownerIDMatch[1] : "0000000000000000";
+        const accountName = foundByMatch ? foundByMatch[1] : "NoAccountName";
+        
+        // Extract card type from the "Found:" line
+        let cardType = "Tradeable Card";
+        const foundLine = message.content.split('\n').find(line => line.startsWith('Found:'));
+        if (foundLine) {
+            cardType = foundLine.replace('Found:', '').trim();
         }
         
         let packAmount = "1";
-        if (packInfoMatch && packInfoMatch.length >= 3) {
+        if (packInfoMatch && packInfoMatch.length >= 2) {
             packAmount = packInfoMatch[1];
         }
         
@@ -414,7 +420,7 @@ async function processTradeableCardsWebhook(client, message) {
             return;
         }
         
-        // Check if this is a God Pack
+        // Check if this is a God Pack (shouldn't happen here but just in case)
         const isGodPack = message.content.toLowerCase().includes("god pack found");
         
         // Determine if we should create a thread based on configuration
@@ -425,17 +431,17 @@ async function processTradeableCardsWebhook(client, message) {
             const targetChannelID = await getPackSpecificChannel(packType);
             console.log(`🎯 Target channel ID: ${targetChannelID}`);
             
-            // Create the title for the forum post
+            // Create the title for the forum post - CLEAN FORMAT
             const titleName = `${accountName} [${packAmount}P]`;
             console.log(`📝 Forum post title: ${titleName}`);
             
-            // Create forum post - pass "NOTRADEID" as placeholder for account ID
+            // Create forum post with proper formatting
             await createForumPost(
                 client,
                 message,              // The original webhook message
                 targetChannelID,      // Pack-specific forum channel
-                cardType,            // Card type (e.g., "Full Art", "Rainbow")
-                titleName,           // The formatted title
+                cardType,            // Card type (e.g., "One Star (x1)")
+                titleName,           // The formatted title: "DV-437 [11P]"
                 ownerID,             // Discord user ID who found it
                 "NOTRADEID",         // Placeholder for account ID since tradeable cards don't have friend codes
                 packAmount,          // Number of packs
@@ -454,6 +460,7 @@ async function processTradeableCardsWebhook(client, message) {
         console.error("❌ Error processing tradeable cards webhook:", error);
     }
 }
+
 // Global Var
 
 const client = new Client({
@@ -1903,7 +1910,9 @@ client.on("messageCreate", async (message) => {
                     await logPackFindToChannel(client, message, gpInfo.packBoosterType, "God Pack", gpInfo.accountName, gpInfo.packAmount, gpInfo.ownerID, gpInfo.accountID);
                 }
             }
-            // Handle any other card types that contain "found by" - ENHANCED VERSION
+            
+
+// Handle any other card types that contain "found by" - ENHANCED VERSION
             else if (message.content.toLowerCase().includes("found by")) {
                 console.log("🎴 === PROCESSING TRADEABLE CARD ===");
                 
@@ -1918,9 +1927,9 @@ client.on("messageCreate", async (message) => {
                     const targetChannel = await getPackSpecificChannel(packBoosterType);
                     console.log(`🎯 Target channel: ${targetChannel}`);
                     
-                    // Extract information for tradeable cards
+                    // Updated regex patterns for new webhook format
                     const regexOwnerID = /<@(\d+)>/;
-                    const regexFoundBy = /([A-Za-z\s]+) found by (\S+)/i;
+                    const regexFoundBy = /Tradeable cards found by (\S+)/i; // Updated for new format
                     const regexPackInfo = /\((\d+) packs?, ([^)]+)\)/;
                     const regexAccountID = /\((\d+)\)/g; // Global flag to find all matches
                     
@@ -1936,12 +1945,13 @@ client.on("messageCreate", async (message) => {
                     console.log(`   All parentheses matches: ${accountIDMatches.map(match => match[0]).join(', ')}`);
                     
                     const ownerID = ownerIDMatch ? ownerIDMatch[1] : "0000000000000000";
-                    let cardType = "Tradeable Card"; // Set default for tradeable cards
-                    let accountName = "NoAccountName";
+                    const accountName = foundByMatch ? foundByMatch[1] : "NoAccountName"; // Updated extraction
                     
-                    if (foundByMatch && foundByMatch.length >= 3) {
-                        cardType = foundByMatch[1].trim();
-                        accountName = foundByMatch[2];
+                    // Extract card type from the "Found:" line
+                    let cardType = "Tradeable Card";
+                    const foundLine = message.content.split('\n').find(line => line.startsWith('Found:'));
+                    if (foundLine) {
+                        cardType = foundLine.replace('Found:', '').trim();
                     }
                     
                     // Smart logic to determine if there's a valid friend ID
@@ -1964,7 +1974,7 @@ client.on("messageCreate", async (message) => {
                     
                     // Extract pack amount
                     let packAmount = "1";
-                    if (packInfoMatch && packInfoMatch.length >= 3) {
+                    if (packInfoMatch && packInfoMatch.length >= 2) {
                         packAmount = packInfoMatch[1];
                     }
                     
@@ -1987,7 +1997,7 @@ client.on("messageCreate", async (message) => {
                         return;
                     }
                     
-                    // Format the title
+                    // Format the title - CLEAN FORMAT
                     const titleName = `${accountName} [${packAmount}P]`;
                     console.log(`📝 Forum post title: ${titleName}`);
                     
@@ -2005,7 +2015,7 @@ client.on("messageCreate", async (message) => {
                     // Extract basic info for logging when threads are disabled
                     const packBoosterType = extractPackTypeFromWebhook(message.content);
                     const regexOwnerID = /<@(\d+)>/;
-                    const regexFoundBy = /([A-Za-z\s]+) found by (\S+)/i;
+                    const regexFoundBy = /Tradeable cards found by (\S+)/i; // Updated for new format
                     const regexPackInfo = /\((\d+) packs?, ([^)]+)\)/;
                     
                     const ownerIDMatch = message.content.match(regexOwnerID);
@@ -2013,22 +2023,24 @@ client.on("messageCreate", async (message) => {
                     const packInfoMatch = message.content.match(regexPackInfo);
                     
                     const ownerID = ownerIDMatch ? ownerIDMatch[1] : "0000000000000000";
-                    let cardType = "Tradeable Card";
-                    let accountName = "NoAccountName";
+                    const accountName = foundByMatch ? foundByMatch[1] : "NoAccountName"; // Updated extraction
                     
-                    if (foundByMatch && foundByMatch.length >= 3) {
-                        cardType = foundByMatch[1].trim();
-                        accountName = foundByMatch[2];
+                    // Extract card type from the "Found:" line
+                    let cardType = "Tradeable Card";
+                    const foundLine = message.content.split('\n').find(line => line.startsWith('Found:'));
+                    if (foundLine) {
+                        cardType = foundLine.replace('Found:', '').trim();
                     }
                     
                     let packAmount = "1";
-                    if (packInfoMatch && packInfoMatch.length >= 3) {
+                    if (packInfoMatch && packInfoMatch.length >= 2) {
                         packAmount = packInfoMatch[1];
                     }
-await logPackFindToChannel(client, message, packBoosterType, cardType, accountName, packAmount, ownerID, "NOTRADEID");
+                    
+                    await logPackFindToChannel(client, message, packBoosterType, cardType, accountName, packAmount, ownerID, "NOTRADEID");
                 }
             }
-// Handle the old format of Double messages
+            // Handle the old format of Double messages
             else if (message.content.toLowerCase().includes("double")) {
                 if(channelID_2StarVerificationForum == ""){return;}
 
