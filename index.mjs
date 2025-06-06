@@ -1039,10 +1039,6 @@ client.on(Events.InteractionCreate, async interaction => {
 
     const guild = await getGuild(client);
 
-    // Register the Aggressive Cleanup command
-    const aggressiveCleanupCommand = aggressiveCleanupSCB.toJSON();
-    client.application.commands.create(aggressiveCleanupCommand, guildID);
-
     // ======================= Buttons =======================
     
     try{
@@ -1204,6 +1200,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
             setUserState(client, user, "leech", interaction)
         }
+
 // REFRESH COMMAND
         if(interaction.commandName === `refresh`){
             
@@ -1602,7 +1599,8 @@ client.on(Events.InteractionCreate, async interaction => {
                 await sendReceivedMessage(client, `${text_minimumGP} **<@${interactionUserID}>**`, interaction);
             }
         }
-// SET PREFIX COMMAND
+
+        // SET PREFIX COMMAND
         if(interaction.commandName === `setprefix`){
 
             await interaction.deferReply();
@@ -1822,13 +1820,7 @@ client.on(Events.InteractionCreate, async interaction => {
             }
         }
 
-    }
-    catch(error){
-        console.error('❌ ERROR - Crash Prevented\n', error);
-    }
-});
-
-// AGGRESSIVE CLEANUP COMMAND (ADMIN ONLY)
+        // AGGRESSIVE CLEANUP COMMAND (ADMIN ONLY)
         if(interaction.commandName === `aggressivecleanup`){
             await interaction.deferReply({ ephemeral: true });
             
@@ -1850,6 +1842,13 @@ client.on(Events.InteractionCreate, async interaction => {
                 ephemeral: true 
             });
         }
+
+    }
+    catch(error){
+        console.error('❌ ERROR - Crash Prevented\n', error);
+    }
+});
+
 
 client.on("messageCreate", async (message) => {
     const guild = await getGuild(client);
