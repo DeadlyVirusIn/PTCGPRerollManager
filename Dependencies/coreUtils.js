@@ -2169,45 +2169,15 @@ function extractDoubleStarInfo(message) {
     }
 }
 
-// Enhanced createForumPost function to match Discord webhook format
+// Updated createForumPost function to prevent auto-following threads
 async function createForumPost(client, message, channelID, gpType, titleName, userID, accountID, packAmount, packType) {
     try {
         const guild = await getGuild(client);
-        
-        // Try cache first, then fetch if not found
         let channel = guild.channels.cache.get(channelID);
         
         if (!channel) {
             console.log(`📡 Channel ${channelID} not in cache, attempting to fetch...`);
-            try {
-                channel = await client.channels.fetch(channelID);
-                console.log(`✅ Successfully fetched channel: ${channel.name}`);
-            } catch (fetchError) {
-                console.log(`❌ Failed to fetch channel ${channelID}:`, fetchError.message);
-                
-                // Additional debugging - let's see what channels we DO have access to
-                console.log(`🔍 Checking available channels...`);
-                const availableChannels = guild.channels.cache.filter(ch => ch.type === 15); // Forum channels only
-                console.log(`📋 Available forum channels (${availableChannels.size}):`);
-                availableChannels.forEach(ch => {
-                    console.log(`   - ${ch.name} (${ch.id})`);
-                });
-                
-                // Try to find by name as fallback
-                const channelByName = guild.channels.cache.find(ch => 
-                    ch.name.toLowerCase().includes('lunala') || 
-                    ch.name.toLowerCase().includes(packType ? packType.toLowerCase() : '')
-                );
-                
-                if (channelByName) {
-                    console.log(`🔍 Found channel by name: ${channelByName.name} (${channelByName.id})`);
-                    console.log(`⚠️ Config shows: ${channelID}, but found: ${channelByName.id}`);
-                    // Use the found channel as fallback
-                    channel = channelByName;
-                } else {
-                    throw new Error(`Channel ${channelID} not accessible and no fallback found`);
-                }
-            }
+            channel = await client.channels.fetch(channelID);
         }
 
         if (!channel) {
@@ -2217,41 +2187,28 @@ async function createForumPost(client, message, channelID, gpType, titleName, us
 
         console.log(`📝 Creating enhanced forum post in channel: ${channel.name} (${channel.id})`);
 
-        // ============= NEW ENHANCED FORMAT =============
-        
         // Extract the pack type with enhanced function
         const detectedPackType = packType || extractPackTypeFromWebhook(message.content);
         
         // Create the structured content that matches the Discord webhook format
         let threadContent = "";
         
-        // Add the emoji and main title based on card type
         if (gpType === "God Pack") {
             threadContent += `🎯 **God Pack found by <@${userID}>!**\n`;
         } else {
             threadContent += `🎴 **Tradeable cards found by <@${userID}>!**\n`;
         }
         
-        // Add pack type with emoji
         threadContent += `📦 **Pack Type:** ${detectedPackType}\n`;
-        
-        // Extract account name from the title (remove the pack info part)
         const accountName = titleName.split(' [')[0];
         threadContent += `👤 **Account:** ${accountName}\n`;
-        
-        // Add packs opened
         threadContent += `📊 **Packs Opened:** ${packAmount}\n`;
         
-        // Add account ID if it's not a placeholder
         if (accountID && accountID !== "0000000000000000" && accountID !== "NOTRADEID") {
             threadContent += `🆔 **Account ID:** ${accountID}\n`;
         }
         
-        // Add source reference
-        threadContent += `🔗 **Source:** ${message.url}\n`;
-        
-        // Add some spacing
-        threadContent += `\n`;
+        threadContent += `🔗 **Source:** ${message.url}\n\n`;
 
         // Get image URL from webhook message
         let imageUrl = "";
@@ -2261,185 +2218,135 @@ async function createForumPost(client, message, channelID, gpType, titleName, us
             imageUrl = message.embeds[0].image.url;
         }
 
-        // ============= END NEW ENHANCED FORMAT =============
-
-        // Backup database before operations
-        await backupFile(pathUsersData);
-
         // Get active users for tag management
         const activeUsers = await getActiveUsers(false, true);
         const activeUserIDs = getIDFromUsers(activeUsers);
 
-        console.log(`👥 Found ${activeUserIDs.length} active users`);
-
         // Determine tags based on user state and pack type
-        let availableTags = [];
         let autoApplyTags = [];
-
         if (channel.availableTags && channel.availableTags.length > 0) {
-            availableTags = channel.availableTags;
-            console.log(`🏷️ Available tags: ${availableTags.map(tag => tag.name).join(', ')}`);
-
+            const availableTags = channel.availableTags;
+            
             // Auto-apply pack type tag if it exists
             const packTypeTag = availableTags.find(tag => 
                 tag.name.toLowerCase().includes(detectedPackType.toLowerCase())
             );
             if (packTypeTag) {
                 autoApplyTags.push(packTypeTag.id);
-                console.log(`🏷️ Auto-applying pack type tag: ${packTypeTag.name}`);
             }
 
             // Check if user is active and apply appropriate tags
             if (activeUserIDs.includes(userID)) {
-                console.log(`✅ User ${userID} is active`);
-                
-                // Find "Active" tag
                 const activeTag = availableTags.find(tag => 
                     tag.name.toLowerCase() === 'active' || 
                     tag.name.toLowerCase() === 'actif'
                 );
                 if (activeTag) {
                     autoApplyTags.push(activeTag.id);
-                    console.log(`🏷️ Auto-applying active tag: ${activeTag.name}`);
                 }
             } else {
-                console.log(`❌ User ${userID} is not active`);
-                
-                // Find "Inactive" tag
                 const inactiveTag = availableTags.find(tag => 
                     tag.name.toLowerCase() === 'inactive' || 
                     tag.name.toLowerCase() === 'inactif'
                 );
                 if (inactiveTag) {
                     autoApplyTags.push(inactiveTag.id);
-                    console.log(`🏷️ Auto-applying inactive tag: ${inactiveTag.name}`);
                 }
             }
         }
 
-        // Create the forum post with enhanced format
+        // ===== FIX: Create thread without auto-following =====
         const forumPost = await channel.threads.create({
             name: titleName,
+            autoArchiveDuration: 4320, // 3 days (can be 60, 1440, 4320, 10080)
             message: {
                 content: threadContent,
                 embeds: imageUrl ? [{
                     image: { url: imageUrl },
-                    color: 0xf02f7e // Pink color to match the theme
+                    color: 0xf02f7e
                 }] : undefined
             },
-            appliedTags: autoApplyTags.length > 0 ? autoApplyTags : undefined
+            appliedTags: autoApplyTags.length > 0 ? autoApplyTags : undefined,
+            // This is the key setting to prevent auto-following
+            rateLimitPerUser: 0 // No slowmode, but helps with thread creation
         });
 
         console.log(`✅ Created enhanced forum post: ${forumPost.name} (ID: ${forumPost.id})`);
 
+        // ===== CRITICAL FIX: Immediately unfollow the thread for the bot =====
+        try {
+            // The bot automatically follows threads it creates, so we unfollow it
+            await forumPost.leave();
+            console.log(`✅ Bot unfollowed thread to prevent auto-following others`);
+        } catch (unfollowError) {
+            console.log(`⚠️ Could not unfollow thread: ${unfollowError.message}`);
+        }
+
         // Add the appropriate emoji reactions if this is a God Pack
         if (gpType === "God Pack") {
             try {
-                // Get the first message in the thread (the forum post message)
                 const messages = await forumPost.messages.fetch({ limit: 1 });
                 const firstMessage = messages.first();
                 
                 if (firstMessage) {
-                    // Add reaction emojis for God Pack verification
-                    await firstMessage.react('✅'); // For verified
-                    await firstMessage.react('❌'); // For dead
-                    await firstMessage.react('👍'); // For liked
-                    await firstMessage.react('👎'); // For not liked
+                    await firstMessage.react('✅');
+                    await firstMessage.react('❌');
+                    await firstMessage.react('👍');
+                    await firstMessage.react('👎');
                 }
             } catch (reactionError) {
                 console.log(`⚠️ Could not add reactions: ${reactionError.message}`);
             }
         }
 
-        // Wait a moment for the thread to be fully created
+        // Wait for thread to be fully created
         await new Promise(resolve => setTimeout(resolve, 1000));
 
-        // Get the thread channel more reliably
+        // Get the thread channel and send additional messages
         let threadChannel;
         try {
-            // Try to get from cache first
-            threadChannel = guild.channels.cache.get(forumPost.id);
+            threadChannel = guild.channels.cache.get(forumPost.id) || await client.channels.fetch(forumPost.id);
             
-            // If not in cache, fetch it
-            if (!threadChannel) {
-                console.log(`📡 Thread ${forumPost.id} not in cache, fetching...`);
-                threadChannel = await client.channels.fetch(forumPost.id);
+            if (threadChannel) {
+                // Post appropriate message based on account ID type
+                if (accountID == "0000000000000000" || accountID == "NOTRADEID") {
+                    if (accountID == "NOTRADEID") {
+                        const text_tradeableCard = localize(
+                            "🎴 **Carte échangeable** - Aucun ID d'ami requis pour ce type de carte",
+                            "🎴 **Tradeable Card** - No friend ID required for this card type"
+                        );
+                        await threadChannel.send({ content: text_tradeableCard });
+                    } else {
+                        const text_incorrectID = localize(
+                            "L'ID du compte est incorrect :\n- Injecter le compte pour retrouver l'ID\n- Reposter le GP dans le webhook avec l'ID entre parenthèse\n- Faites /removegpfound @LaPersonneQuiLaDrop\n- Supprimer ce post",
+                            "The account ID is incorrect:\n- Inject the account to find the ID\n- Repost the GP in the webhook with the ID in parentheses\n- Do /removegpfound @UserThatDroppedIt\n- Delete this post"
+                        );
+                        await threadChannel.send({ content: `# ⚠️ ${text_incorrectID}` });
+                    }
+                } else {
+                    await threadChannel.send({
+                        content: `${accountID} is the id of the account\n-# You can copy paste this message in PocketTCG to look for this account`
+                    });
+                }
             }
-            
-            if (!threadChannel) {
-                console.log(`❌ Could not find thread channel ${forumPost.id}`);
-                return forumPost; // Return early but don't fail completely
-            }
-            
-            console.log(`✅ Found thread channel: ${threadChannel.name}`);
-            
         } catch (error) {
-            console.error(`❌ Error fetching thread channel ${forumPost.id}:`, error.message);
-            return forumPost; // Return early but don't fail completely
-        }
-
-        // Post appropriate message based on account ID type (keep existing logic)
-        if (accountID == "0000000000000000" || accountID == "NOTRADEID") {
-            if (accountID == "NOTRADEID") {
-                // For tradeable cards, this is expected
-                const text_tradeableCard = localize(
-                    "🎴 **Carte échangeable** - Aucun ID d'ami requis pour ce type de carte",
-                    "🎴 **Tradeable Card** - No friend ID required for this card type"
-                );
-                try {
-                    await threadChannel.send({
-                        content: text_tradeableCard
-                    });
-                    console.log(`✅ Sent tradeable card message to thread`);
-                } catch (error) {
-                    console.error(`❌ Error sending tradeable card message:`, error.message);
-                }
-            } else {
-                // For God Packs with missing ID
-                const text_incorrectID = localize(
-                    "L'ID du compte est incorrect :\n- Injecter le compte pour retrouver l'ID\n- Reposter le GP dans le webhook avec l'ID entre parenthèse\n- Faites /removegpfound @LaPersonneQuiLaDrop\n- Supprimer ce post",
-                    "The account ID is incorrect:\n- Inject the account to find the ID\n- Repost the GP in the webhook with the ID in parentheses\n- Do /removegpfound @UserThatDroppedIt\n- Delete this post"
-                );
-                try {
-                    await threadChannel.send({
-                        content: `# ⚠️ ${text_incorrectID}`
-                    });
-                    console.log(`✅ Sent incorrect ID message to thread`);
-                } catch (error) {
-                    console.error(`❌ Error sending incorrect ID message:`, error.message);
-                }
-            }
-        } else {
-            // For valid account IDs, post the normal account ID message
-            try {
-                await threadChannel.send({
-                    content: `${accountID} is the id of the account\n-# You can copy paste this message in PocketTCG to look for this account`
-                });
-                console.log(`✅ Sent account ID message to thread`);
-            } catch (error) {
-                console.error(`❌ Error sending account ID message:`, error.message);
-            }
+            console.error(`❌ Error sending additional messages:`, error.message);
         }
 
         // Update user stats if not a tradeable card
         if (accountID !== "NOTRADEID") {
             try {
-                // Increment user's total God Pack count
                 const currentGPCount = await getUserAttribValue(client, userID, attrib_GodPackFound, 0);
                 const newGPCount = parseInt(currentGPCount) + 1;
                 
                 await setUserAttribValue(userID, (await client.users.fetch(userID)).username, attrib_GodPackFound, newGPCount);
                 console.log(`📊 Updated GP count for user ${userID}: ${newGPCount}`);
 
-                // Add to server data tracking
                 await addServerGP(attrib_eligibleGP, forumPost);
                 console.log(`📊 Added GP to server tracking`);
-
             } catch (error) {
                 console.error("❌ Error updating user stats:", error);
             }
-        } else {
-            console.log(`📊 Skipping stats update for tradeable card`);
         }
 
         // Send notification if notifications are enabled
@@ -2465,18 +2372,12 @@ async function createForumPost(client, message, channelID, gpType, titleName, us
 
                 const notificationChannel = guild.channels.cache.get(channelID_Notifications);
                 if (notificationChannel) {
-                    await notificationChannel.send({
-                        content: notificationContent
-                    });
+                    await notificationChannel.send({ content: notificationContent });
                     console.log(`📢 Sent notification to ${notificationChannel.name}`);
-                } else {
-                    console.log(`❌ Notification channel ${channelID_Notifications} not found`);
                 }
             } catch (error) {
                 console.error("❌ Error sending notification:", error);
             }
-        } else {
-            console.log(`📢 Notifications disabled`);
         }
 
         return forumPost;
@@ -2484,6 +2385,47 @@ async function createForumPost(client, message, channelID, gpType, titleName, us
     } catch (error) {
         console.error("❌ Error creating forum post:", error);
         throw error;
+    }
+}
+
+// Additional helper function to bulk unfollow threads (optional)
+async function unfollowAllBotThreads(client, channelID) {
+    try {
+        const guild = await getGuild(client);
+        const channel = guild.channels.cache.get(channelID);
+        
+        if (!channel || channel.type !== 15) {
+            console.log(`❌ Channel ${channelID} is not a forum channel`);
+            return;
+        }
+
+        console.log(`🔍 Checking for threads to unfollow in ${channel.name}...`);
+        
+        // Get active threads
+        const activeThreads = await channel.threads.fetchActive();
+        
+        let unfollowCount = 0;
+        for (const [threadId, thread] of activeThreads.threads) {
+            try {
+                // Check if bot is following this thread
+                const members = await thread.members.fetch();
+                const botMember = members.get(client.user.id);
+                
+                if (botMember) {
+                    await thread.leave();
+                    unfollowCount++;
+                    console.log(`✅ Unfollowed: ${thread.name}`);
+                    await new Promise(resolve => setTimeout(resolve, 500)); // Rate limit protection
+                }
+            } catch (error) {
+                console.log(`⚠️ Could not unfollow ${thread.name}: ${error.message}`);
+            }
+        }
+        
+        console.log(`✅ Unfollowed ${unfollowCount} threads in ${channel.name}`);
+        
+    } catch (error) {
+        console.error("❌ Error unfollowing threads:", error);
     }
 }
 
