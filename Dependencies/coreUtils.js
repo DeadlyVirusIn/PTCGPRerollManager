@@ -2166,18 +2166,54 @@ function extractDoubleStarInfo(message) {
         console.log(`❌ ERROR - Failed to extract double star info for message: ${message}` + error);
     }
 }
-// Create forum post and manage tags
+
+// Complete createForumPost function with all fixes
 async function createForumPost(client, message, channelID, gpType, titleName, userID, accountID, packAmount, packType) {
     try {
         const guild = client.guilds.cache.first();
-        const channel = guild.channels.cache.get(channelID);
+        
+        // Try cache first, then fetch if not found
+        let channel = guild.channels.cache.get(channelID);
+        
+        if (!channel) {
+            console.log(`📡 Channel ${channelID} not in cache, attempting to fetch...`);
+            try {
+                channel = await client.channels.fetch(channelID);
+                console.log(`✅ Successfully fetched channel: ${channel.name}`);
+            } catch (fetchError) {
+                console.log(`❌ Failed to fetch channel ${channelID}:`, fetchError.message);
+                
+                // Additional debugging - let's see what channels we DO have access to
+                console.log(`🔍 Checking available channels...`);
+                const availableChannels = guild.channels.cache.filter(ch => ch.type === 15); // Forum channels only
+                console.log(`📋 Available forum channels (${availableChannels.size}):`);
+                availableChannels.forEach(ch => {
+                    console.log(`   - ${ch.name} (${ch.id})`);
+                });
+                
+                // Try to find by name as fallback
+                const channelByName = guild.channels.cache.find(ch => 
+                    ch.name.toLowerCase().includes('lunala') || 
+                    ch.name.toLowerCase().includes(packType.toLowerCase())
+                );
+                
+                if (channelByName) {
+                    console.log(`🔍 Found channel by name: ${channelByName.name} (${channelByName.id})`);
+                    console.log(`⚠️ Config shows: ${channelID}, but found: ${channelByName.id}`);
+                    // Use the found channel as fallback
+                    channel = channelByName;
+                } else {
+                    throw new Error(`Channel ${channelID} not accessible and no fallback found`);
+                }
+            }
+        }
 
         if (!channel) {
             console.log(`❌ Channel ${channelID} not found`);
             return;
         }
 
-        console.log(`📝 Creating forum post in channel: ${channel.name}`);
+        console.log(`📝 Creating forum post in channel: ${channel.name} (${channel.id})`);
 
         // Get image URL from webhook message
         let imageUrl = "";
@@ -2242,7 +2278,6 @@ async function createForumPost(client, message, channelID, gpType, titleName, us
         }
 
         // Create metadata line with proper handling for tradeable cards
-        // Keep metadata short to avoid Discord's 2000 character limit
         let baseContent;
         if (accountID === "NOTRADEID") {
             baseContent = `Source: ${message.url}\nTradeable Card - No Friend ID\n\n`;
@@ -2269,6 +2304,30 @@ async function createForumPost(client, message, channelID, gpType, titleName, us
         // Wait a moment for the thread to be fully created
         await new Promise(resolve => setTimeout(resolve, 1000));
 
+        // Get the thread channel more reliably
+        let threadChannel;
+        try {
+            // Try to get from cache first
+            threadChannel = guild.channels.cache.get(forumPost.id);
+            
+            // If not in cache, fetch it
+            if (!threadChannel) {
+                console.log(`📡 Thread ${forumPost.id} not in cache, fetching...`);
+                threadChannel = await client.channels.fetch(forumPost.id);
+            }
+            
+            if (!threadChannel) {
+                console.log(`❌ Could not find thread channel ${forumPost.id}`);
+                return forumPost; // Return early but don't fail completely
+            }
+            
+            console.log(`✅ Found thread channel: ${threadChannel.name}`);
+            
+        } catch (error) {
+            console.error(`❌ Error fetching thread channel ${forumPost.id}:`, error.message);
+            return forumPost; // Return early but don't fail completely
+        }
+
         // Post appropriate message based on account ID type
         if (accountID == "0000000000000000" || accountID == "NOTRADEID") {
             if (accountID == "NOTRADEID") {
@@ -2277,24 +2336,39 @@ async function createForumPost(client, message, channelID, gpType, titleName, us
                     "🎴 **Carte échangeable** - Aucun ID d'ami requis pour ce type de carte",
                     "🎴 **Tradeable Card** - No friend ID required for this card type"
                 );
-                await guild.channels.cache.get(forumPost.id).send({
-                    content: text_tradeableCard
-                });
+                try {
+                    await threadChannel.send({
+                        content: text_tradeableCard
+                    });
+                    console.log(`✅ Sent tradeable card message to thread`);
+                } catch (error) {
+                    console.error(`❌ Error sending tradeable card message:`, error.message);
+                }
             } else {
                 // For God Packs with missing ID
                 const text_incorrectID = localize(
                     "L'ID du compte est incorrect :\n- Injecter le compte pour retrouver l'ID\n- Reposter le GP dans le webhook avec l'ID entre parenthèse\n- Faites /removegpfound @LaPersonneQuiLaDrop\n- Supprimer ce post",
                     "The account ID is incorrect:\n- Inject the account to find the ID\n- Repost the GP in the webhook with the ID in parentheses\n- Do /removegpfound @UserThatDroppedIt\n- Delete this post"
                 );
-                await guild.channels.cache.get(forumPost.id).send({
-                    content: `# ⚠️ ${text_incorrectID}`
-                });
+                try {
+                    await threadChannel.send({
+                        content: `# ⚠️ ${text_incorrectID}`
+                    });
+                    console.log(`✅ Sent incorrect ID message to thread`);
+                } catch (error) {
+                    console.error(`❌ Error sending incorrect ID message:`, error.message);
+                }
             }
         } else {
             // For valid account IDs, post the normal account ID message
-            await guild.channels.cache.get(forumPost.id).send({
-                content: `${accountID} is the id of the account\n-# You can copy paste this message in PocketTCG to look for this account`
-            });
+            try {
+                await threadChannel.send({
+                    content: `${accountID} is the id of the account\n-# You can copy paste this message in PocketTCG to look for this account`
+                });
+                console.log(`✅ Sent account ID message to thread`);
+            } catch (error) {
+                console.error(`❌ Error sending account ID message:`, error.message);
+            }
         }
 
         // Update user stats if not a tradeable card
@@ -2360,6 +2434,7 @@ async function createForumPost(client, message, channelID, gpType, titleName, us
         throw error;
     }
 }
+
 async function sendStatusHeader(client) {
     console.log("📝 Updating Status Header...");
     
@@ -2819,6 +2894,93 @@ async function updateInactiveGPs(client) {
     }
 }
 
+async function verifyAllChannels(client) {
+    console.log("🔍 === VERIFYING ALL PACK CHANNELS ===");
+    
+    const channelsToCheck = [
+        { name: "Mewtwo", id: channelID_MewtwoVerificationForum },
+        { name: "Charizard", id: channelID_CharizardVerificationForum },
+        { name: "Pikachu", id: channelID_PikachuVerificationForum },
+        { name: "Mew", id: channelID_MewVerificationForum },
+        { name: "Dialga", id: channelID_DialgaVerificationForum },
+        { name: "Palkia", id: channelID_PalkiaVerificationForum },
+        { name: "Arceus", id: channelID_ArceusVerificationForum },
+        { name: "Shining", id: channelID_ShiningVerificationForum },
+        { name: "Solgaleo", id: channelID_SolgaleoVerificationForum },
+        { name: "Lunala", id: channelID_LunalaVerificationForum },
+        { name: "Buzzwole", id: channelID_BuzzwoleVerificationForum },
+        { name: "2Star Forum", id: channelID_2StarVerificationForum }
+    ];
+
+    const guild = await getGuild(client);
+    let allChannelsOk = true;
+
+    for (const channelConfig of channelsToCheck) {
+        console.log(`\n📋 Checking ${channelConfig.name}:`);
+        console.log(`   Config ID: ${channelConfig.id}`);
+
+        if (!channelConfig.id) {
+            console.log(`   ❌ No ID configured in config.js`);
+            allChannelsOk = false;
+            continue;
+        }
+
+        // Try cache first
+        let channel = guild.channels.cache.get(channelConfig.id);
+        console.log(`   💾 In cache: ${channel ? 'YES' : 'NO'}`);
+
+        // Try fetch if not in cache
+        if (!channel) {
+            try {
+                channel = await client.channels.fetch(channelConfig.id);
+                console.log(`   📡 Fetched: YES`);
+            } catch (error) {
+                console.log(`   ❌ Fetch failed: ${error.message}`);
+                
+                // Look for similar channels
+                const similarChannels = guild.channels.cache.filter(ch => 
+                    ch.name.toLowerCase().includes(channelConfig.name.toLowerCase()) && ch.type === 15
+                );
+                
+                if (similarChannels.size > 0) {
+                    console.log(`   🔍 Found similar channels:`);
+                    similarChannels.forEach(ch => {
+                        console.log(`      - ${ch.name} (${ch.id})`);
+                    });
+                    console.log(`   💡 Consider updating config.js with the correct ID`);
+                }
+                
+                allChannelsOk = false;
+                continue;
+            }
+        }
+
+        if (channel) {
+            console.log(`   ✅ Name: ${channel.name}`);
+            console.log(`   📁 Type: ${channel.type === 15 ? 'Forum ✅' : `${channel.type} ❌ (Should be 15)`}`);
+            
+            if (channel.type !== 15) {
+                console.log(`   ⚠️ WARNING: ${channelConfig.name} is not a forum channel!`);
+                allChannelsOk = false;
+            }
+        }
+    }
+
+    console.log(`\n📊 === VERIFICATION SUMMARY ===`);
+    if (allChannelsOk) {
+        console.log(`✅ All channels verified successfully!`);
+    } else {
+        console.log(`❌ Some channels have issues. Check the logs above.`);
+        console.log(`💡 Common fixes:`);
+        console.log(`   - Update channel IDs in config.js`);
+        console.log(`   - Ensure all pack channels are forum channels`);
+        console.log(`   - Check bot permissions in each channel`);
+    }
+    console.log(`🔍 === END VERIFICATION ===\n`);
+
+    return allChannelsOk;
+}
+
 async function checkAllPackChannelsAccess(client) {
     console.log("🔍 === ALL PACK CHANNELS ACCESS CHECK ===");
     
@@ -3185,5 +3347,6 @@ export {
     getEnhancedSelectedPacksEmbedText,
     createTimelineStats,
     createLeaderboards,
-    checkAllPackChannelsAccess
+    checkAllPackChannelsAccess,
+    verifyAllChannels
 };
