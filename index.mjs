@@ -474,6 +474,104 @@ function getNexIntervalRemainingTime() {
     return timeRemaining;
 }
 
+// Aggressive cleanup function - finds and leaves ALL threads the bot is following
+async function aggressiveThreadCleanup(client) {
+    try {
+        console.log("🧹 Starting aggressive thread cleanup...");
+        const guild = await getGuild(client);
+        
+        // Get all forum channels
+        const packChannels = [
+            channelID_MewtwoVerificationForum,
+            channelID_CharizardVerificationForum,
+            channelID_PikachuVerificationForum,
+            channelID_MewVerificationForum,
+            channelID_DialgaVerificationForum,
+            channelID_PalkiaVerificationForum,
+            channelID_ArceusVerificationForum,
+            channelID_ShiningVerificationForum,
+            channelID_SolgaleoVerificationForum,
+            channelID_LunalaVerificationForum,
+            channelID_BuzzwoleVerificationForum,
+            channelID_2StarVerificationForum
+        ].filter(id => id && id !== ""); // Remove empty channel IDs
+        
+        let totalUnfollowed = 0;
+        
+        for (const channelID of packChannels) {
+            try {
+                const channel = guild.channels.cache.get(channelID);
+                
+                if (!channel || channel.type !== 15) {
+                    console.log(`⚠️ Skipping invalid channel: ${channelID}`);
+                    continue;
+                }
+                
+                console.log(`🔍 Checking ${channel.name} for followed threads...`);
+                
+                // Get both active and archived threads
+                const activeThreads = await channel.threads.fetchActive();
+                const archivedThreads = await channel.threads.fetchArchived({ fetchAll: true });
+                
+                // Combine all threads
+                const allThreads = new Map([
+                    ...activeThreads.threads,
+                    ...archivedThreads.threads
+                ]);
+                
+                console.log(`📊 Found ${allThreads.size} total threads in ${channel.name}`);
+                
+                let channelUnfollowed = 0;
+                
+                for (const [threadId, thread] of allThreads) {
+                    try {
+                        // Check if bot is a member of this thread
+                        const members = await thread.members.fetch();
+                        const botMember = members.get(client.user.id);
+                        
+                        if (botMember) {
+                            await thread.leave();
+                            channelUnfollowed++;
+                            totalUnfollowed++;
+                            console.log(`✅ Unfollowed: ${thread.name} (${threadId})`);
+                            
+                            // Rate limit protection
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                        }
+                    } catch (threadError) {
+                        console.log(`⚠️ Could not process thread ${threadId}: ${threadError.message}`);
+                    }
+                }
+                
+                console.log(`✅ Unfollowed ${channelUnfollowed} threads in ${channel.name}`);
+                
+                // Delay between channels to avoid rate limits
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+            } catch (channelError) {
+                console.error(`❌ Error processing channel ${channelID}:`, channelError);
+            }
+        }
+        
+        console.log(`🎉 Aggressive cleanup complete! Total threads unfollowed: ${totalUnfollowed}`);
+        
+        // Also check for any other forum channels that might exist
+        console.log("🔍 Checking for any other forum channels...");
+        const allChannels = guild.channels.cache.filter(channel => channel.type === 15);
+        
+        for (const [channelId, channel] of allChannels) {
+            if (!packChannels.includes(channelId)) {
+                console.log(`⚠️ Found additional forum channel: ${channel.name} (${channelId})`);
+                // Optionally clean this too
+                await unfollowAllBotThreads(client, channelId);
+            }
+        }
+        
+    } catch (error) {
+        console.error("❌ Aggressive cleanup failed:", error);
+    }
+}
+
 // Setup scheduled jobs function
 function setupScheduledJobs(client) {
     // Schedule the GP tracking list update based on configuration
@@ -843,6 +941,13 @@ client.once(Events.ClientReady, async c => {
     const testSummarySCB = new SlashCommandBuilder()
         .setName(`testsummary`)
         .setDescription(`${testSummaryDesc}`);
+
+ // Aggressive cleanup command definition
+    const aggressiveCleanupSCB = new SlashCommandBuilder()
+        .setName(`aggressivecleanup`)
+        .setDescription(localize("ADMIN: Nettoie TOUS les threads suivis par le bot", "ADMIN: Clean up ALL threads followed by the bot"));
+
+
 // Register all commands
     const playeridCommand = playeridSCB.toJSON();
     client.application.commands.create(playeridCommand, guildID);
@@ -925,6 +1030,7 @@ client.once(Events.ClientReady, async c => {
     const unfollowThreadsCommand = unfollowThreadsSCB.toJSON();
     client.application.commands.create(unfollowThreadsCommand, guildID);
 });
+
 client.on(Events.InteractionCreate, async interaction => {
 
     var interactionUserName = interaction.user.username;
@@ -932,6 +1038,10 @@ client.on(Events.InteractionCreate, async interaction => {
     var interactionDisplayName = interaction.user.displayName;
 
     const guild = await getGuild(client);
+
+    // Register the Aggressive Cleanup command
+    const aggressiveCleanupCommand = aggressiveCleanupSCB.toJSON();
+    client.application.commands.create(aggressiveCleanupCommand, guildID);
 
     // ======================= Buttons =======================
     
@@ -1717,6 +1827,30 @@ client.on(Events.InteractionCreate, async interaction => {
         console.error('❌ ERROR - Crash Prevented\n', error);
     }
 });
+
+// AGGRESSIVE CLEANUP COMMAND (ADMIN ONLY)
+        if(interaction.commandName === `aggressivecleanup`){
+            await interaction.deferReply({ ephemeral: true });
+            
+            // Check for admin permissions
+            if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                return await interaction.editReply({ 
+                    content: localize("Vous devez être administrateur", "You must be an administrator") 
+                });
+            }
+            
+            await interaction.editReply({ 
+                content: localize("Démarrage du nettoyage agressif...", "Starting aggressive cleanup...") 
+            });
+            
+            await aggressiveThreadCleanup(client);
+            
+            await interaction.followUp({ 
+                content: localize("Nettoyage agressif terminé!", "Aggressive cleanup complete!"),
+                ephemeral: true 
+            });
+        }
+
 client.on("messageCreate", async (message) => {
     const guild = await getGuild(client);
 
