@@ -78,6 +78,8 @@ import {
     createThreadsForDoubleStars,
     logPackFindsToChannel,
     packFindsLogChannelID,
+    channelID_Notifications,
+    notificationsEnabled,
 } from './config.js';
 import {
     formatMinutesToDays,
@@ -238,7 +240,7 @@ import {
     extractGodpackIdFromMessage,
 } from './Dependencies/gpTestUtils.js';
 
-// Function to extract pack type from webhook message
+// Function to extract pack type from webhook message - ENHANCED VERSION
 function extractPackTypeFromWebhook(webhookContent) {
     console.log(`🔍 Analyzing webhook content: ${webhookContent.substring(0, 100)}...`);
     
@@ -403,6 +405,7 @@ async function processTradeableCardsWebhook(client, message) {
         console.error("❌ Error processing tradeable cards webhook:", error);
     }
 }
+
 // Global Var
 
 const client = new Client({
@@ -660,7 +663,7 @@ const refreshDesc = localize("Rafraichit la liste des Stats instantanément","Re
         .setName(`lastactivity`)
         .setDescription(`${lastactivityDesc}`);
 
-    const generateusernamesDesc = localize("Génère liste basé sur préfixe et, facultatif, des mots","Generate a list based on a prefix and, if desired, keywords");   
+const generateusernamesDesc = localize("Génère liste basé sur préfixe et, facultatif, des mots","Generate a list based on a prefix and, if desired, keywords");   
     const generateusernamesDescPrefix = localize("Les 4 premières lettres premières lettres de votre pseudo","The first 4 letters of your username");   
     const generateusernamesDescKeyword = localize("Des mots clés qui seront assemblés aléatoirement, espace/virgule = séparation","Some keywords that will be assembled randomly, space or comma are separators");   
     const generateusernamesSCB = new SlashCommandBuilder()
@@ -817,7 +820,6 @@ const refreshDesc = localize("Rafraichit la liste des Stats instantanément","Re
     const testSummaryCommand = testSummarySCB.toJSON();
     client.application.commands.create(testSummaryCommand, guildID);
 });
-
 client.on(Events.InteractionCreate, async interaction => {
 
     var interactionUserName = interaction.user.username;
@@ -1246,8 +1248,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
             await sendReceivedMessage(client, activityOutput, interaction);
         }
-
-        // GENERATE USERNAMES COMMAND
+// GENERATE USERNAMES COMMAND
         if(interaction.commandName === `generateusernames`){
 
             await interaction.deferReply();
@@ -1553,124 +1554,80 @@ client.on("messageCreate", async (message) => {
         if (message.attachments.first() != undefined && !message.content.toLowerCase().includes("invalid")) {
             
             // Check if this is a God Pack message
-if (message.content.toLowerCase().includes("god pack found")) {
-    console.log("Processing God Pack message");
-    
-    if (createThreadsForGodPacks) {
-        // Extract GP info using your existing function
-        const gpInfo = extractGPInfo(message.content);
-        
-        console.log(`📦 Extracted pack type: ${gpInfo.packBoosterType}`);
-        
-        // Get the appropriate forum channel for this pack type
-        const targetChannelID = await getPackSpecificChannel(gpInfo.packBoosterType);
-        console.log(`🎯 Target channel ID: ${targetChannelID}`);
-        
-        // Create the title for the forum post
-        const titleName = `${gpInfo.accountName} [${gpInfo.packAmount}P][${gpInfo.twoStarRatio}]`;
-        console.log(`📝 Forum post title: ${titleName}`);
-        
-        // Create forum post
-        await createForumPost(
-            client,
-            message,              // The original webhook message
-            targetChannelID,      // Pack-specific forum channel
-            "God Pack",          // Card type
-            titleName,           // The formatted title
-            gpInfo.ownerID,      // Discord user ID who found it
-            gpInfo.accountID,    // Friend code
-            gpInfo.packAmount,   // Number of packs
-            gpInfo.packBoosterType // Pack type for additional processing
-        );
-        
-        console.log(`✅ Successfully created thread for ${gpInfo.packBoosterType} God Pack for ${gpInfo.accountName}`);
-    } else {
-        // Extract basic info for logging
-        const gpInfo = extractGPInfo(message.content);
-        console.log(`📝 Thread creation disabled for God Packs, logging instead`);
-        await logPackFindToChannel(client, message, gpInfo.packBoosterType, "God Pack", gpInfo.accountName, gpInfo.packAmount, gpInfo.ownerID, gpInfo.accountID);
-    }
-}
-            // Handle any other card types that contain "found by"
-            else if (message.content.toLowerCase().includes("found by")) {
-                console.log("Processing other card message");
+            if (message.content.toLowerCase().includes("god pack found")) {
+                console.log("🎯 === PROCESSING GOD PACK ===");
                 
-                if (createThreadsForTradeableCards) {
-                    // Extract information with regex patterns
-                    const regexOwnerID = /<@(\d+)>/;
-                    const regexFoundBy = /([A-Za-z\s]+) found by (\S+)/i; // Captures card type and account name
-                    const regexAccountID = /\((\d+)\)/;
-                    const regexPackInfo = /\((\d+) packs?, ([^)]+)\)/;
+                if (createThreadsForGodPacks) {
+                    console.log("✅ Thread creation enabled for God Packs");
                     
-                    // Apply regex patterns
-                    const ownerIDMatch = message.content.match(regexOwnerID);
-                    const foundByMatch = message.content.match(regexFoundBy);
-                    const accountIDMatches = message.content.match(regexAccountID);
-                    const packInfoMatch = message.content.match(regexPackInfo);
+                    // Extract GP info using your existing function
+                    const gpInfo = extractGPInfo(message.content);
                     
-                    // Debug logging
-                    console.log("Regex matches:");
-                    console.log("- Owner ID match:", ownerIDMatch);
-                    console.log("- Found By match:", foundByMatch);
-                    console.log("- Account ID match:", accountIDMatches);
-                    console.log("- Pack info match:", packInfoMatch);
+                    console.log(`📦 Extracted pack type: ${gpInfo.packBoosterType}`);
                     
-                    // Extract the data
-                    const ownerID = ownerIDMatch ? ownerIDMatch[1] : "0000000000000000";
-                    let cardType = "Unknown";
-                    let accountName = "NoAccountName";
+                    // Get the appropriate forum channel for this pack type
+                    const targetChannelID = await getPackSpecificChannel(gpInfo.packBoosterType);
+                    console.log(`🎯 Target channel ID: ${targetChannelID}`);
                     
-                    if (foundByMatch && foundByMatch.length >= 3) {
-                        cardType = foundByMatch[1].trim(); // "Full Art", "Rainbow", "Trainer", etc.
-                        accountName = foundByMatch[2];
-                    }
+                    // Create the title for the forum post
+                    const titleName = `${gpInfo.accountName} [${gpInfo.packAmount}P][${gpInfo.twoStarRatio}]`;
+                    console.log(`📝 Forum post title: ${titleName}`);
                     
-                    // Get the first match for account ID (should be the first parenthesis)
-                    const accountID = accountIDMatches && accountIDMatches.length > 0 ? 
-                                     accountIDMatches[1] : "0000000000000000";
+                    // Create forum post
+                    await createForumPost(
+                        client,
+                        message,              // The original webhook message
+                        targetChannelID,      // Pack-specific forum channel
+                        "God Pack",          // Card type
+                        titleName,           // The formatted title
+                        gpInfo.ownerID,      // Discord user ID who found it
+                        gpInfo.accountID,    // Friend code
+                        gpInfo.packAmount,   // Number of packs
+                        gpInfo.packBoosterType // Pack type for additional processing
+                    );
                     
-                    // Extract pack amount and pack type using the improved function
-                    let packAmount = "1";
-                    let packBoosterType = extractPackTypeFromWebhook(message.content);
-                    
-                    if (packInfoMatch && packInfoMatch.length >= 3) {
-                        packAmount = packInfoMatch[1];
-                        // Use extracted pack type from our function instead of regex result
-                        // This ensures consistency with the God Pack processing
-                    }
-                    
-                    console.log(`Card type: ${cardType}`);
-                    console.log(`Extracted info - Owner: ${ownerID}, Name: ${accountName}, ID: ${accountID}`);
-                    console.log(`Pack info - Amount: ${packAmount}, Type: ${packBoosterType}`);
-                    
-                    // Format the title
-                    var titleName = `${accountName} [${packAmount}P]`;
-                    
-                    // Get the appropriate channel for this pack type
-                    console.log(`Looking for channel for pack type: ${packBoosterType}`);
-                    const targetChannel = await getPackSpecificChannel(packBoosterType);
-                    console.log(`Selected channel: ${targetChannel}`);
-                    
-                    // Create the forum post
-                    console.log(`Creating forum post in channel ${targetChannel}`);
-                    await createForumPost(client, message, targetChannel, cardType, titleName, ownerID, accountID, packAmount, packBoosterType);
-                    
-                    // Update GP tracking list after a new special card is found
-                    await updateGPTrackingList(client);
+                    console.log(`✅ Successfully created thread for ${gpInfo.packBoosterType} God Pack for ${gpInfo.accountName}`);
                 } else {
                     // Extract basic info for logging
+                    const gpInfo = extractGPInfo(message.content);
+                    console.log(`📝 Thread creation disabled for God Packs, logging instead`);
+                    await logPackFindToChannel(client, message, gpInfo.packBoosterType, "God Pack", gpInfo.accountName, gpInfo.packAmount, gpInfo.ownerID, gpInfo.accountID);
+                }
+            }
+            // Handle any other card types that contain "found by" - ENHANCED VERSION
+            else if (message.content.toLowerCase().includes("found by")) {
+                console.log("🎴 === PROCESSING TRADEABLE CARD ===");
+                
+                if (createThreadsForTradeableCards) {
+                    console.log("✅ Thread creation enabled for tradeable cards");
+                    
+                    // Extract pack type with enhanced function
+                    const packBoosterType = extractPackTypeFromWebhook(message.content);
+                    console.log(`📦 Extracted pack type: "${packBoosterType}"`);
+                    
+                    // Get target channel
+                    const targetChannel = await getPackSpecificChannel(packBoosterType);
+                    console.log(`🎯 Target channel: ${targetChannel}`);
+                    
+                    // Extract information for tradeable cards
                     const regexOwnerID = /<@(\d+)>/;
                     const regexFoundBy = /([A-Za-z\s]+) found by (\S+)/i;
-                    const regexAccountID = /\((\d+)\)/;
                     const regexPackInfo = /\((\d+) packs?, ([^)]+)\)/;
+                    const regexAccountID = /\((\d+)\)/g; // Global flag to find all matches
                     
                     const ownerIDMatch = message.content.match(regexOwnerID);
                     const foundByMatch = message.content.match(regexFoundBy);
-                    const accountIDMatches = message.content.match(regexAccountID);
                     const packInfoMatch = message.content.match(regexPackInfo);
+                    const accountIDMatches = [...message.content.matchAll(regexAccountID)]; // Get all parentheses matches
+                    
+                    console.log("🔍 Regex extraction results:");
+                    console.log(`   Owner ID: ${ownerIDMatch ? ownerIDMatch[1] : 'NOT FOUND'}`);
+                    console.log(`   Found By: ${foundByMatch ? foundByMatch[0] : 'NOT FOUND'}`);
+                    console.log(`   Pack Info: ${packInfoMatch ? packInfoMatch[0] : 'NOT FOUND'}`);
+                    console.log(`   All parentheses matches: ${accountIDMatches.map(match => match[0]).join(', ')}`);
                     
                     const ownerID = ownerIDMatch ? ownerIDMatch[1] : "0000000000000000";
-                    let cardType = "Unknown";
+                    let cardType = "Tradeable Card"; // Set default for tradeable cards
                     let accountName = "NoAccountName";
                     
                     if (foundByMatch && foundByMatch.length >= 3) {
@@ -1678,21 +1635,92 @@ if (message.content.toLowerCase().includes("god pack found")) {
                         accountName = foundByMatch[2];
                     }
                     
-                    const accountID = accountIDMatches && accountIDMatches.length > 0 ? 
-                                     accountIDMatches[1] : "0000000000000000";
+                    // Smart logic to determine if there's a valid friend ID
+                    let accountID = "NOTRADEID"; // Default for tradeable cards
                     
+                    // Filter out pack count matches to find potential friend IDs
+                    const potentialFriendIDs = accountIDMatches
+                        .map(match => match[1])
+                        .filter(id => {
+                            // Friend IDs are typically 16 digits, pack counts are usually 1-3 digits
+                            return id.length >= 10; // Assume friend IDs are at least 10 digits
+                        });
+                    
+                    if (potentialFriendIDs.length > 0) {
+                        accountID = potentialFriendIDs[0]; // Take the first valid friend ID
+                        console.log(`🆔 Found friend ID: ${accountID}`);
+                    } else {
+                        console.log("🚫 No friend ID found - this appears to be a tradeable card without friend code");
+                    }
+                    
+                    // Extract pack amount
                     let packAmount = "1";
-                    let packBoosterType = extractPackTypeFromWebhook(message.content);
-                    
                     if (packInfoMatch && packInfoMatch.length >= 3) {
                         packAmount = packInfoMatch[1];
                     }
                     
+                    console.log(`📊 Final extraction results:`);
+                    console.log(`   Card Type: ${cardType}`);
+                    console.log(`   Account Name: ${accountName}`);
+                    console.log(`   Owner ID: ${ownerID}`);
+                    console.log(`   Account ID: ${accountID}`);
+                    console.log(`   Pack Amount: ${packAmount}`);
+                    console.log(`   Pack Type: ${packBoosterType}`);
+                    
+                    // Validate required information
+                    if (!ownerID || ownerID === "0000000000000000") {
+                        console.log("❌ Missing or invalid owner ID, skipping...");
+                        return;
+                    }
+                    
+                    if (!accountName || accountName === "NoAccountName") {
+                        console.log("❌ Missing account name, skipping...");
+                        return;
+                    }
+                    
+                    // Format the title
+                    const titleName = `${accountName} [${packAmount}P]`;
+                    console.log(`📝 Forum post title: ${titleName}`);
+                    
+                    // Create the forum post
+                    console.log(`🏗️ Creating forum post in channel ${targetChannel}`);
+                    await createForumPost(client, message, targetChannel, cardType, titleName, ownerID, accountID, packAmount, packBoosterType);
+                    
+                    console.log(`✅ Successfully created thread for ${packBoosterType} ${cardType} for ${accountName}`);
+                    
+                    // Update GP tracking list after a new special card is found
+                    await updateGPTrackingList(client);
+                } else {
                     console.log(`📝 Thread creation disabled for tradeable cards, logging instead`);
-                    await logPackFindToChannel(client, message, packBoosterType, cardType, accountName, packAmount, ownerID, accountID);
+                    
+                    // Extract basic info for logging when threads are disabled
+                    const packBoosterType = extractPackTypeFromWebhook(message.content);
+                    const regexOwnerID = /<@(\d+)>/;
+                    const regexFoundBy = /([A-Za-z\s]+) found by (\S+)/i;
+                    const regexPackInfo = /\((\d+) packs?, ([^)]+)\)/;
+                    
+                    const ownerIDMatch = message.content.match(regexOwnerID);
+                    const foundByMatch = message.content.match(regexFoundBy);
+                    const packInfoMatch = message.content.match(regexPackInfo);
+                    
+                    const ownerID = ownerIDMatch ? ownerIDMatch[1] : "0000000000000000";
+                    let cardType = "Tradeable Card";
+                    let accountName = "NoAccountName";
+                    
+                    if (foundByMatch && foundByMatch.length >= 3) {
+                        cardType = foundByMatch[1].trim();
+                        accountName = foundByMatch[2];
+                    }
+                    
+                    let packAmount = "1";
+                    if (packInfoMatch && packInfoMatch.length >= 3) {
+                        packAmount = packInfoMatch[1];
+                    }
+                    
+                    await logPackFindToChannel(client, message, packBoosterType, cardType, accountName, packAmount, ownerID, "NOTRADEID");
                 }
             }
-            // Handle the old format of Double messages
+// Handle the old format of Double messages
             else if (message.content.toLowerCase().includes("double")) {
                 if(channelID_2StarVerificationForum == ""){return;}
 
@@ -1719,7 +1747,7 @@ if (message.content.toLowerCase().includes("god pack found")) {
                 }
             }
             else {
-                console.log(`Unrecognized message format: ${message.content.substring(0, 100)}`);
+                console.log(`❓ Unrecognized message format: ${message.content.substring(0, 100)}`);
             }
         }
         else if (message.author.bot && message.content.toLowerCase().includes("invalid")) {
