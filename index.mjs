@@ -240,7 +240,7 @@ import {
     extractGodpackIdFromMessage,
 } from './Dependencies/gpTestUtils.js';
 
-// Function to extract pack type from webhook message - ENHANCED VERSION
+// Enhanced function to extract pack type from webhook message
 function extractPackTypeFromWebhook(webhookContent) {
     console.log(`🔍 Analyzing webhook content: ${webhookContent.substring(0, 100)}...`);
     
@@ -252,7 +252,15 @@ function extractPackTypeFromWebhook(webhookContent) {
         return packType;
     }
     
-    // Method 2: Look for known pack names anywhere in the content
+    // Method 2: Look for "Pack Type: X" pattern
+    const packTypeDirectMatch = webhookContent.match(/Pack Type:\s*([^\n]+)/i);
+    if (packTypeDirectMatch) {
+        const packType = packTypeDirectMatch[1].trim();
+        console.log(`📦 Pack type extracted from direct match: "${packType}"`);
+        return packType;
+    }
+    
+    // Method 3: Look for known pack names anywhere in the content
     const packNames = [
         'Mewtwo', 'Charizard', 'Pikachu', 'Mew', 
         'Dialga', 'Palkia', 'Arceus', 'Shining',
