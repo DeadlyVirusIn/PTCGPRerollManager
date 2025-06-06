@@ -86,6 +86,8 @@
     tradeableCardTrackingLabel,
     doubleStarTrackingLabel,
     godPackTrackingLabel,
+    channelID_Notifications,
+    notificationsEnabled,
 } from '../config.js';
 import {
     formatMinutesToDays,
@@ -2167,10 +2169,10 @@ function extractDoubleStarInfo(message) {
     }
 }
 
-// Complete createForumPost function with all fixes
+// Enhanced createForumPost function to match Discord webhook format
 async function createForumPost(client, message, channelID, gpType, titleName, userID, accountID, packAmount, packType) {
     try {
-        const guild = client.guilds.cache.first();
+        const guild = await getGuild(client);
         
         // Try cache first, then fetch if not found
         let channel = guild.channels.cache.get(channelID);
@@ -2194,7 +2196,7 @@ async function createForumPost(client, message, channelID, gpType, titleName, us
                 // Try to find by name as fallback
                 const channelByName = guild.channels.cache.find(ch => 
                     ch.name.toLowerCase().includes('lunala') || 
-                    ch.name.toLowerCase().includes(packType.toLowerCase())
+                    ch.name.toLowerCase().includes(packType ? packType.toLowerCase() : '')
                 );
                 
                 if (channelByName) {
@@ -2213,7 +2215,43 @@ async function createForumPost(client, message, channelID, gpType, titleName, us
             return;
         }
 
-        console.log(`📝 Creating forum post in channel: ${channel.name} (${channel.id})`);
+        console.log(`📝 Creating enhanced forum post in channel: ${channel.name} (${channel.id})`);
+
+        // ============= NEW ENHANCED FORMAT =============
+        
+        // Extract the pack type with enhanced function
+        const detectedPackType = packType || extractPackTypeFromWebhook(message.content);
+        
+        // Create the structured content that matches the Discord webhook format
+        let threadContent = "";
+        
+        // Add the emoji and main title based on card type
+        if (gpType === "God Pack") {
+            threadContent += `🎯 **God Pack found by <@${userID}>!**\n`;
+        } else {
+            threadContent += `🎴 **Tradeable cards found by <@${userID}>!**\n`;
+        }
+        
+        // Add pack type with emoji
+        threadContent += `📦 **Pack Type:** ${detectedPackType}\n`;
+        
+        // Extract account name from the title (remove the pack info part)
+        const accountName = titleName.split(' [')[0];
+        threadContent += `👤 **Account:** ${accountName}\n`;
+        
+        // Add packs opened
+        threadContent += `📊 **Packs Opened:** ${packAmount}\n`;
+        
+        // Add account ID if it's not a placeholder
+        if (accountID && accountID !== "0000000000000000" && accountID !== "NOTRADEID") {
+            threadContent += `🆔 **Account ID:** ${accountID}\n`;
+        }
+        
+        // Add source reference
+        threadContent += `🔗 **Source:** ${message.url}\n`;
+        
+        // Add some spacing
+        threadContent += `\n`;
 
         // Get image URL from webhook message
         let imageUrl = "";
@@ -2222,6 +2260,8 @@ async function createForumPost(client, message, channelID, gpType, titleName, us
         } else if (message.embeds && message.embeds.length > 0 && message.embeds[0].image) {
             imageUrl = message.embeds[0].image.url;
         }
+
+        // ============= END NEW ENHANCED FORMAT =============
 
         // Backup database before operations
         await backupFile(pathUsersData);
@@ -2242,7 +2282,7 @@ async function createForumPost(client, message, channelID, gpType, titleName, us
 
             // Auto-apply pack type tag if it exists
             const packTypeTag = availableTags.find(tag => 
-                tag.name.toLowerCase().includes(packType.toLowerCase())
+                tag.name.toLowerCase().includes(detectedPackType.toLowerCase())
             );
             if (packTypeTag) {
                 autoApplyTags.push(packTypeTag.id);
@@ -2277,29 +2317,39 @@ async function createForumPost(client, message, channelID, gpType, titleName, us
             }
         }
 
-        // Create metadata line with proper handling for tradeable cards
-        let baseContent;
-        if (accountID === "NOTRADEID") {
-            baseContent = `Source: ${message.url}\nTradeable Card - No Friend ID\n\n`;
-        } else {
-            baseContent = `Source: ${message.url}\nID:${accountID}\n\n`;
-        }
-        
-        // Only add image URL if the total length stays under 1800 chars (leaving buffer)
-        const text_metadataLine = baseContent.length + imageUrl.length < 1800 
-            ? baseContent.replace('\n\n', `\n${imageUrl}\n\n`)
-            : baseContent;
-
-        // Create the forum post
+        // Create the forum post with enhanced format
         const forumPost = await channel.threads.create({
             name: titleName,
             message: {
-                content: text_metadataLine
+                content: threadContent,
+                embeds: imageUrl ? [{
+                    image: { url: imageUrl },
+                    color: 0xf02f7e // Pink color to match the theme
+                }] : undefined
             },
             appliedTags: autoApplyTags.length > 0 ? autoApplyTags : undefined
         });
 
-        console.log(`✅ Created forum post: ${forumPost.name} (ID: ${forumPost.id})`);
+        console.log(`✅ Created enhanced forum post: ${forumPost.name} (ID: ${forumPost.id})`);
+
+        // Add the appropriate emoji reactions if this is a God Pack
+        if (gpType === "God Pack") {
+            try {
+                // Get the first message in the thread (the forum post message)
+                const messages = await forumPost.messages.fetch({ limit: 1 });
+                const firstMessage = messages.first();
+                
+                if (firstMessage) {
+                    // Add reaction emojis for God Pack verification
+                    await firstMessage.react('✅'); // For verified
+                    await firstMessage.react('❌'); // For dead
+                    await firstMessage.react('👍'); // For liked
+                    await firstMessage.react('👎'); // For not liked
+                }
+            } catch (reactionError) {
+                console.log(`⚠️ Could not add reactions: ${reactionError.message}`);
+            }
+        }
 
         // Wait a moment for the thread to be fully created
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -2328,7 +2378,7 @@ async function createForumPost(client, message, channelID, gpType, titleName, us
             return forumPost; // Return early but don't fail completely
         }
 
-        // Post appropriate message based on account ID type
+        // Post appropriate message based on account ID type (keep existing logic)
         if (accountID == "0000000000000000" || accountID == "NOTRADEID") {
             if (accountID == "NOTRADEID") {
                 // For tradeable cards, this is expected
@@ -2413,18 +2463,20 @@ async function createForumPost(client, message, channelID, gpType, titleName, us
                     notificationContent = `${text_notification}\n📍 ${forumPost.url}`;
                 }
 
-                const notificationChannel = guild.channels.cache.get(notificationChannelID);
+                const notificationChannel = guild.channels.cache.get(channelID_Notifications);
                 if (notificationChannel) {
                     await notificationChannel.send({
                         content: notificationContent
                     });
                     console.log(`📢 Sent notification to ${notificationChannel.name}`);
                 } else {
-                    console.log(`❌ Notification channel ${notificationChannelID} not found`);
+                    console.log(`❌ Notification channel ${channelID_Notifications} not found`);
                 }
             } catch (error) {
                 console.error("❌ Error sending notification:", error);
             }
+        } else {
+            console.log(`📢 Notifications disabled`);
         }
 
         return forumPost;
