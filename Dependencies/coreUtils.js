@@ -80,6 +80,12 @@
     SM_Solgaleo_CustomEmojiName,
     SM_Lunala_CustomEmojiName,
     outputUserDataOnGitGist,
+    includeTradeableCardsInTracking,
+    includeDoubleStarsInTracking,
+    includeGodPacksInTracking,
+    tradeableCardTrackingLabel,
+    doubleStarTrackingLabel,
+    godPackTrackingLabel,
 } from '../config.js';
 import {
     formatMinutesToDays,
@@ -1394,7 +1400,7 @@ async function sendIDs(client, updateServer = true) {
     }
 }
 
-// GP Tracking List Function (Fixed for Discord 2000 character limit) - Version 2
+// Updated GP Tracking List Function with filtering options
 async function updateGPTrackingList(client) {
     console.log("📝 Updating GP Tracking List...");
     
@@ -1411,158 +1417,138 @@ async function updateGPTrackingList(client) {
     
     // Process each forum channel for GPs
     const packForums = [
-        channelID_MewtwoVerificationForum,
-        channelID_CharizardVerificationForum,
-        channelID_PikachuVerificationForum, 
-        channelID_MewVerificationForum,
-        channelID_DialgaVerificationForum,
-        channelID_PalkiaVerificationForum,
-        channelID_ArceusVerificationForum,
-        channelID_ShiningVerificationForum,
-        channelID_SolgaleoVerificationForum,
-        channelID_LunalaVerificationForum,
-        channelID_BuzzwoleVerificationForum
+        { id: channelID_MewtwoVerificationForum, type: 'godpack', name: 'Mewtwo' },
+        { id: channelID_CharizardVerificationForum, type: 'godpack', name: 'Charizard' },
+        { id: channelID_PikachuVerificationForum, type: 'godpack', name: 'Pikachu' },
+        { id: channelID_MewVerificationForum, type: 'godpack', name: 'Mew' },
+        { id: channelID_DialgaVerificationForum, type: 'godpack', name: 'Dialga' },
+        { id: channelID_PalkiaVerificationForum, type: 'godpack', name: 'Palkia' },
+        { id: channelID_ArceusVerificationForum, type: 'godpack', name: 'Arceus' },
+        { id: channelID_ShiningVerificationForum, type: 'tradeable', name: 'Shining' },
+        { id: channelID_SolgaleoVerificationForum, type: 'tradeable', name: 'Solgaleo' },
+        { id: channelID_LunalaVerificationForum, type: 'tradeable', name: 'Lunala' },
+        { id: channelID_BuzzwoleVerificationForum, type: 'tradeable', name: 'Buzzwole' },
+        { id: channelID_2StarVerificationForum, type: 'doublestar', name: '2-Star' }
     ];
     
-    // Track all GPs
-    let aliveGPs = [];
-    let testingGPs = [];
+    // Separate tracking by type
+    let aliveGodPacks = [];
+    let testingGodPacks = [];
+    let aliveTradeableCards = [];
+    let testingTradeableCards = [];
+    let aliveDoubleStars = [];
+    let testingDoubleStars = [];
     
     // Process all verification forums
-    for (const forumId of packForums) {
-        if (!forumId) continue;
+    for (const forum of packForums) {
+        if (!forum.id) continue;
+        
+        // Check if this type should be included
+        if (forum.type === 'godpack' && !includeGodPacksInTracking) continue;
+        if (forum.type === 'tradeable' && !includeTradeableCardsInTracking) continue;
+        if (forum.type === 'doublestar' && !includeDoubleStarsInTracking) continue;
         
         try {
-            const forum = await client.channels.cache.get(forumId);
-            if (!forum) continue;
+            const forumChannel = await client.channels.cache.get(forum.id);
+            if (!forumChannel) continue;
             
             // Fetch active threads
-            const activeThreads = await forum.threads.fetchActive();
+            const activeThreads = await forumChannel.threads.fetchActive();
             
             // Process each thread
             for (let thread of activeThreads.threads.values()) {
                 // Skip dead GPs
                 if (thread.name.includes(text_deadLogo)) continue;
                 
-                // Extract thread info - keep original format
+                // Extract thread info
                 const cleanName = replaceAnyLogoWith(thread.name, "").trim();
                 
-                // Get pack type from forum name
-                let packType = "";
-                if (forumId === channelID_MewtwoVerificationForum) packType = "Mewtwo";
-                else if (forumId === channelID_CharizardVerificationForum) packType = "Charizard";
-                else if (forumId === channelID_PikachuVerificationForum) packType = "Pikachu";
-                else if (forumId === channelID_MewVerificationForum) packType = "Mew";
-                else if (forumId === channelID_DialgaVerificationForum) packType = "Dialga";
-                else if (forumId === channelID_PalkiaVerificationForum) packType = "Palkia";
-                else if (forumId === channelID_ArceusVerificationForum) packType = "Arceus";
-                else if (forumId === channelID_ShiningVerificationForum) packType = "Shining";
-                else if (forumId === channelID_SolgaleoVerificationForum) packType = "Solgaleo";
-                else if (forumId === channelID_LunalaVerificationForum) packType = "Lunala";
-                else if (forumId === channelID_BuzzwoleVerificationForum) packType = "Buzzwole";
-                
-                // Format display string - this follows the exact format you specified
-                // Example: DV259 [4P][4/5][Palkia][GP]
-                // Extract main parts
-                const nameParts = cleanName.split(' ');
-                const accountName = nameParts[0];
-                
-                // Extract and format the remaining parts
-                const remainingInfo = cleanName.substring(accountName.length).trim();
-                
-                // Add [PackType] if not already in the name
-                let formattedName = `${accountName} ${remainingInfo}`;
-                if (!formattedName.includes(`[${packType}]`)) {
-                    formattedName = `${accountName} ${remainingInfo}[${packType}]`;
+                // Format display string with pack type
+                let formattedName = `${cleanName}`;
+                if (!formattedName.includes(`[${forum.name}]`)) {
+                    formattedName = `${cleanName}[${forum.name}]`;
                 }
                 
-                // If the name doesn't end with [GP], add it for god packs
-                if (thread.name.toLowerCase().includes("god pack") && !formattedName.endsWith("[GP]")) {
+                // Add appropriate suffix based on content type
+                if (forum.type === 'godpack' && !formattedName.endsWith("[GP]")) {
                     formattedName += "[GP]";
+                } else if (forum.type === 'tradeable' && !formattedName.includes("[Tradeable cards]")) {
+                    formattedName = formattedName.replace(`[${forum.name}]`, `[Tradeable cards][${forum.name}]`);
                 }
                 
-                // Check if alive or testing
+                const threadData = {
+                    name: formattedName,
+                    threadId: thread.id
+                };
+                
+                // Categorize by verification status and type
                 if (thread.name.includes(text_verifiedLogo)) {
-                    aliveGPs.push({
-                        name: formattedName,
-                        threadId: thread.id
-                    });
+                    if (forum.type === 'godpack') {
+                        aliveGodPacks.push(threadData);
+                    } else if (forum.type === 'tradeable') {
+                        aliveTradeableCards.push(threadData);
+                    } else if (forum.type === 'doublestar') {
+                        aliveDoubleStars.push(threadData);
+                    }
                 } else {
-                    testingGPs.push({
-                        name: formattedName,
-                        threadId: thread.id
-                    });
+                    if (forum.type === 'godpack') {
+                        testingGodPacks.push(threadData);
+                    } else if (forum.type === 'tradeable') {
+                        testingTradeableCards.push(threadData);
+                    } else if (forum.type === 'doublestar') {
+                        testingDoubleStars.push(threadData);
+                    }
                 }
             }
         } catch (error) {
-            console.log(`⚠️ Error processing forum ${forumId}: ${error}`);
+            console.log(`⚠️ Error processing forum ${forum.id}: ${error}`);
         }
     }
     
-    // Sort alphabetically by account name
-    aliveGPs.sort((a, b) => a.name.localeCompare(b.name));
-    testingGPs.sort((a, b) => a.name.localeCompare(b.name));
+    // Sort all arrays alphabetically
+    [aliveGodPacks, testingGodPacks, aliveTradeableCards, testingTradeableCards, aliveDoubleStars, testingDoubleStars]
+        .forEach(arr => arr.sort((a, b) => a.name.localeCompare(b.name)));
     
-    console.log(`📊 Found ${aliveGPs.length} alive GPs and ${testingGPs.length} testing GPs`);
+    console.log(`📊 Found items - GP: ${aliveGodPacks.length + testingGodPacks.length}, Tradeable: ${aliveTradeableCards.length + testingTradeableCards.length}, Double Stars: ${aliveDoubleStars.length + testingDoubleStars.length}`);
     
     try {
-        // Handle alive GPs
-        if (aliveGPs.length === 0) {
-            await trackingChannel.send({ content: "✅ **Alive Packs** ✅\nNo alive GPs currently tracked.\n" });
-        } else {
-            let currentMessage = "✅ **Alive Packs** ✅\n";
-            const maxLength = 1800; // Even more conservative limit
-            
-            for (const gp of aliveGPs) {
-                const itemText = `**[\`[Alive]\`](https://discord.com/channels/${guildID}/${gp.threadId}) ${gp.name}**\n`;
-                
-                // Check if adding this item would exceed the limit
-                if ((currentMessage + itemText).length > maxLength) {
-                    // Send current message and start a new one
-                    await trackingChannel.send({ content: currentMessage });
-                    await wait(0.5); // Small delay to avoid rate limits
-                    currentMessage = itemText; // Start new message with current item
-                } else {
-                    currentMessage += itemText;
-                }
-            }
-            
-            // Send the last message if there's content beyond just the header
-            if (currentMessage.length > "✅ **Alive Packs** ✅\n".length) {
-                await trackingChannel.send({ content: currentMessage });
-            }
+        // Send sections based on configuration
+        
+        // ALIVE SECTIONS
+        if (includeGodPacksInTracking && aliveGodPacks.length > 0) {
+            await sendTrackingSection(trackingChannel, `✅ **Alive ${godPackTrackingLabel}** ✅`, aliveGodPacks, 'Alive');
         }
         
-        // Add delay between sections
-        await wait(0.5);
+        if (includeTradeableCardsInTracking && aliveTradeableCards.length > 0) {
+            await sendTrackingSection(trackingChannel, `✅ **Alive ${tradeableCardTrackingLabel}** ✅`, aliveTradeableCards, 'Alive');
+        }
         
-        // Handle testing GPs
-        if (testingGPs.length === 0) {
-            await trackingChannel.send({ content: "🍀 **Testing Packs** 🍀\nNo testing GPs currently tracked.\n" });
-        } else {
-            let currentMessage = "🍀 **Testing Packs** 🍀\n";
-            const maxLength = 1800; // Even more conservative limit
-            
-            for (const gp of testingGPs) {
-                const itemText = `**[\`[Testing]\`](https://discord.com/channels/${guildID}/${gp.threadId}) ${gp.name}**\n`;
-                
-                // Check if adding this item would exceed the limit
-                if ((currentMessage + itemText).length > maxLength) {
-                    // Send current message and start a new one
-                    console.log(`📤 Sending message chunk (${currentMessage.length} chars)`);
-                    await trackingChannel.send({ content: currentMessage });
-                    await wait(0.5); // Small delay to avoid rate limits
-                    currentMessage = itemText; // Start new message with current item
-                } else {
-                    currentMessage += itemText;
-                }
-            }
-            
-            // Send the last message if there's content beyond just the header
-            if (currentMessage.length > "🍀 **Testing Packs** 🍀\n".length) {
-                console.log(`📤 Sending final message chunk (${currentMessage.length} chars)`);
-                await trackingChannel.send({ content: currentMessage });
-            }
+        if (includeDoubleStarsInTracking && aliveDoubleStars.length > 0) {
+            await sendTrackingSection(trackingChannel, `✅ **Alive ${doubleStarTrackingLabel}** ✅`, aliveDoubleStars, 'Alive');
+        }
+        
+        // TESTING SECTIONS  
+        if (includeGodPacksInTracking && testingGodPacks.length > 0) {
+            await sendTrackingSection(trackingChannel, `🍀 **Testing ${godPackTrackingLabel}** 🍀`, testingGodPacks, 'Testing');
+        }
+        
+        if (includeTradeableCardsInTracking && testingTradeableCards.length > 0) {
+            await sendTrackingSection(trackingChannel, `🍀 **Testing ${tradeableCardTrackingLabel}** 🍀`, testingTradeableCards, 'Testing');
+        }
+        
+        if (includeDoubleStarsInTracking && testingDoubleStars.length > 0) {
+            await sendTrackingSection(trackingChannel, `🍀 **Testing ${doubleStarTrackingLabel}** 🍀`, testingDoubleStars, 'Testing');
+        }
+        
+        // If no items to display
+        const totalItems = aliveGodPacks.length + testingGodPacks.length + 
+                          aliveTradeableCards.length + testingTradeableCards.length + 
+                          aliveDoubleStars.length + testingDoubleStars.length;
+        
+        if (totalItems === 0) {
+            await trackingChannel.send({ 
+                content: "📭 **No items currently tracked**\n*Check your tracking configuration in config.js*" 
+            });
         }
         
         console.log("✅ GP Tracking List updated successfully");
@@ -1570,15 +1556,43 @@ async function updateGPTrackingList(client) {
     } catch (error) {
         console.error("❌ Error sending GP tracking messages:", error);
         
-        // Fallback: try to send a simple message indicating there was an error
         try {
             await trackingChannel.send({ 
-                content: "❌ Error updating GP tracking list. Too many items to display at once. Please contact an administrator." 
+                content: "❌ Error updating tracking list. Too many items to display at once. Please contact an administrator." 
             });
         } catch (fallbackError) {
             console.error("❌ Even fallback message failed:", fallbackError);
         }
     }
+}
+
+// Helper function to send tracking sections
+async function sendTrackingSection(channel, header, items, status) {
+    if (items.length === 0) {
+        await channel.send({ content: `${header}\nNo items currently tracked.\n` });
+        return;
+    }
+    
+    let currentMessage = `${header}\n`;
+    const maxLength = 1800;
+    
+    for (const item of items) {
+        const itemText = `**[\`[${status}]\`](https://discord.com/channels/${guildID}/${item.threadId}) ${item.name}**\n`;
+        
+        if ((currentMessage + itemText).length > maxLength) {
+            await channel.send({ content: currentMessage });
+            await wait(0.5);
+            currentMessage = itemText;
+        } else {
+            currentMessage += itemText;
+        }
+    }
+    
+    if (currentMessage.length > header.length + 1) {
+        await channel.send({ content: currentMessage });
+    }
+    
+    await wait(0.5);
 }
 
 async function setUserState(client, user, state, interaction = undefined) {
@@ -2805,6 +2819,346 @@ async function updateInactiveGPs(client) {
     }
 }
 
+async function checkAllPackChannelsAccess(client) {
+    console.log("🔍 === ALL PACK CHANNELS ACCESS CHECK ===");
+    
+    try {
+        const guild = await getGuild(client);
+        console.log(`🏠 Guild: ${guild.name} (${guild.id})`);
+        console.log(`📊 Total channels in cache: ${guild.channels.cache.size}`);
+        
+        // Define all pack channels - ALL pack channels handle godpack + tradeable + double 2-star
+        const packChannels = [
+            { name: "Mewtwo", id: channelID_MewtwoVerificationForum, type: "pack-forum", handles: ["godpack", "tradeable", "doublestar"] },
+            { name: "Charizard", id: channelID_CharizardVerificationForum, type: "pack-forum", handles: ["godpack", "tradeable", "doublestar"] },
+            { name: "Pikachu", id: channelID_PikachuVerificationForum, type: "pack-forum", handles: ["godpack", "tradeable", "doublestar"] },
+            { name: "Mew", id: channelID_MewVerificationForum, type: "pack-forum", handles: ["godpack", "tradeable", "doublestar"] },
+            { name: "Dialga", id: channelID_DialgaVerificationForum, type: "pack-forum", handles: ["godpack", "tradeable", "doublestar"] },
+            { name: "Palkia", id: channelID_PalkiaVerificationForum, type: "pack-forum", handles: ["godpack", "tradeable", "doublestar"] },
+            { name: "Arceus", id: channelID_ArceusVerificationForum, type: "pack-forum", handles: ["godpack", "tradeable", "doublestar"] },
+            { name: "Shining", id: channelID_ShiningVerificationForum, type: "pack-forum", handles: ["godpack", "tradeable", "doublestar"] },
+            { name: "Solgaleo", id: channelID_SolgaleoVerificationForum, type: "pack-forum", handles: ["godpack", "tradeable", "doublestar"] },
+            { name: "Lunala", id: channelID_LunalaVerificationForum, type: "pack-forum", handles: ["godpack", "tradeable", "doublestar"] },
+            { name: "Buzzwole", id: channelID_BuzzwoleVerificationForum, type: "pack-forum", handles: ["godpack", "tradeable", "doublestar"] },
+            // Legacy 2-Star forum (if you still want a separate double star channel)
+            { name: "Legacy 2-Star", id: channelID_2StarVerificationForum, type: "legacy-doublestar", handles: ["doublestar"] },
+            // System channels
+            { name: "Webhook", id: channelID_Webhook, type: "webhook", handles: ["webhook"] },
+            { name: "GP Tracking", id: channelID_GPTrackingList, type: "tracking", handles: ["tracking"] }
+        ];
+        
+        let accessibleChannels = 0;
+        let totalChannels = 0;
+        let issuesFound = [];
+        
+        console.log(`📋 Checking ${packChannels.length} configured channels:\n`);
+        
+        for (const channelConfig of packChannels) {
+            console.log(`🔍 === Checking ${channelConfig.name} ===`);
+            console.log(`   Type: ${channelConfig.type}`);
+            console.log(`   Handles: ${channelConfig.handles.join(', ')}`);
+            console.log(`   ID: ${channelConfig.id}`);
+            
+            if (!channelConfig.id) {
+                console.log(`   ❌ No ID configured`);
+                issuesFound.push(`${channelConfig.name}: No ID configured`);
+                continue;
+            }
+            
+            totalChannels++;
+            
+            // Step 1: Check cache
+            let channel = guild.channels.cache.get(channelConfig.id);
+            console.log(`   💾 Found in cache: ${channel ? 'YES' : 'NO'}`);
+            
+            // Step 2: Try to fetch if not in cache
+            if (!channel) {
+                console.log(`   🔄 Attempting to fetch...`);
+                try {
+                    channel = await client.channels.fetch(channelConfig.id);
+                    console.log(`   🌐 Fetch successful: YES`);
+                } catch (fetchError) {
+                    console.log(`   ❌ Fetch failed: ${fetchError.message} (Code: ${fetchError.code})`);
+                    
+                    if (fetchError.code === 10003) {
+                        console.log(`   💡 Channel doesn't exist or bot can't access it`);
+                        issuesFound.push(`${channelConfig.name}: Channel not found (ID: ${channelConfig.id})`);
+                    } else if (fetchError.code === 50001) {
+                        console.log(`   💡 Bot lacks permission to access this channel`);
+                        issuesFound.push(`${channelConfig.name}: Missing access permission`);
+                    } else {
+                        issuesFound.push(`${channelConfig.name}: ${fetchError.message}`);
+                    }
+                    
+                    // Try to find similar channels
+                    console.log(`   🔍 Looking for similar channels...`);
+                    const similarChannels = guild.channels.cache.filter(ch => 
+                        ch.name.toLowerCase().includes(channelConfig.name.toLowerCase()) ||
+                        ch.name.toLowerCase().includes(channelConfig.name.toLowerCase().substring(0, 3))
+                    );
+                    
+                    if (similarChannels.size > 0) {
+                        console.log(`   📋 Found similar channels:`);
+                        similarChannels.forEach(ch => {
+                            console.log(`      - ${ch.name} (${ch.id}) [Type: ${getChannelTypeName(ch.type)}]`);
+                        });
+                    }
+                    
+                    console.log(); // Empty line for readability
+                    continue;
+                }
+            }
+            
+            if (channel) {
+                console.log(`   ✅ Channel accessible:`);
+                console.log(`      Name: ${channel.name}`);
+                console.log(`      Type: ${channel.type} (${getChannelTypeName(channel.type)})`);
+                console.log(`      Guild: ${channel.guild.name}`);
+                console.log(`      Parent: ${channel.parent ? channel.parent.name : 'None'}`);
+                
+                accessibleChannels++;
+                
+                // Check bot permissions
+                const botMember = guild.members.cache.get(client.user.id);
+                if (botMember) {
+                    const permissions = channel.permissionsFor(botMember);
+                    console.log(`   🔐 Bot permissions:`);
+                    
+                    const requiredPerms = getRequiredPermissions(channelConfig.type, channel.type);
+                    let hasAllPerms = true;
+                    
+                    for (const perm of requiredPerms) {
+                        const hasPermission = permissions.has(perm.permission);
+                        console.log(`      ${hasPermission ? '✅' : '❌'} ${perm.name}`);
+                        if (!hasPermission) {
+                            hasAllPerms = false;
+                            issuesFound.push(`${channelConfig.name}: Missing '${perm.name}' permission`);
+                        }
+                    }
+                    
+                    if (!hasAllPerms) {
+                        console.log(`   ⚠️ Some permissions are missing`);
+                    }
+                    
+                    // Check channel type compatibility for pack forums
+                    if (channelConfig.type === 'pack-forum' || channelConfig.type === 'legacy-doublestar') {
+                        if (channel.type !== 15) { // Not a forum channel
+                            console.log(`   ⚠️ Warning: Expected forum channel but found ${getChannelTypeName(channel.type)}`);
+                            console.log(`   💡 Pack channels should be forum channels to handle all content types`);
+                            issuesFound.push(`${channelConfig.name}: Not a forum channel (Type: ${getChannelTypeName(channel.type)})`);
+                        } else {
+                            // Show forum-specific info
+                            if (channel.availableTags && channel.availableTags.length > 0) {
+                                console.log(`   🏷️ Available tags (${channel.availableTags.length}):`);
+                                channel.availableTags.slice(0, 5).forEach(tag => {
+                                    console.log(`      - ${tag.name}`);
+                                });
+                                if (channel.availableTags.length > 5) {
+                                    console.log(`      ... and ${channel.availableTags.length - 5} more`);
+                                }
+                                
+                                // Check for recommended tags
+                                const recommendedTags = ['Active', 'Inactive', 'God Pack', 'Tradeable', 'Double Star'];
+                                const missingTags = recommendedTags.filter(tagName => 
+                                    !channel.availableTags.some(tag => 
+                                        tag.name.toLowerCase().includes(tagName.toLowerCase())
+                                    )
+                                );
+                                
+                                if (missingTags.length > 0) {
+                                    console.log(`   💡 Consider adding these tags: ${missingTags.join(', ')}`);
+                                }
+                            } else {
+                                console.log(`   🏷️ No tags configured`);
+                                console.log(`   💡 Consider adding tags: Active, Inactive, God Pack, Tradeable, Double Star`);
+                            }
+                        }
+                    }
+                } else {
+                    console.log(`   ❌ Bot member not found in guild`);
+                    issuesFound.push(`${channelConfig.name}: Bot not found in guild`);
+                }
+            }
+            
+            console.log(); // Empty line for readability
+        }
+        
+        // Summary
+        console.log(`📊 === SUMMARY ===`);
+        console.log(`✅ Accessible channels: ${accessibleChannels}/${totalChannels}`);
+        console.log(`❌ Issues found: ${issuesFound.length}`);
+        
+        if (issuesFound.length > 0) {
+            console.log(`\n🔧 Issues to fix:`);
+            issuesFound.forEach((issue, index) => {
+                console.log(`   ${index + 1}. ${issue}`);
+            });
+            
+            console.log(`\n💡 Pack Channel Architecture:`);
+            console.log(`   📦 Each pack channel handles ALL content types:`);
+            console.log(`      - God Packs (actual god packs)`);
+            console.log(`      - Tradeable Cards (Full Art, Rainbow, etc.)`);
+            console.log(`      - Double 2-Star Packs`);
+            console.log(`   🏷️ Use tags to categorize content within each pack channel`);
+            console.log(`   📁 Organization: By Pack Type → By Content Type (via tags)`);
+            
+            console.log(`\n💡 Common solutions:`);
+            console.log(`   - Check channel IDs in config.js`);
+            console.log(`   - Ensure ALL pack channels are forum channels`);
+            console.log(`   - Give bot proper permissions in each channel`);
+            console.log(`   - Add recommended tags: Active, Inactive, God Pack, Tradeable, Double Star`);
+            console.log(`   - Check if channels are in restricted categories`);
+        } else {
+            console.log(`🎉 All channels are properly configured!`);
+            console.log(`📦 Pack channels can handle: God Packs + Tradeable Cards + Double Stars`);
+        }
+        
+        // Show bot's guild-level permissions
+        const botMember = guild.members.cache.get(client.user.id);
+        if (botMember) {
+            console.log(`\n🔐 Bot's guild-level permissions:`);
+            const guildPerms = botMember.permissions;
+            const importantGuildPerms = [
+                { name: 'Administrator', permission: 'Administrator' },
+                { name: 'Manage Channels', permission: 'ManageChannels' },
+                { name: 'View Channels', permission: 'ViewChannel' },
+                { name: 'Send Messages', permission: 'SendMessages' },
+                { name: 'Create Public Threads', permission: 'CreatePublicThreads' },
+                { name: 'Manage Messages', permission: 'ManageMessages' }
+            ];
+            
+            importantGuildPerms.forEach(perm => {
+                const hasPermission = guildPerms.has(perm.permission);
+                console.log(`   ${hasPermission ? '✅' : '❌'} ${perm.name}`);
+            });
+        }
+        
+        console.log(`\n✅ === ALL PACK CHANNELS ACCESS CHECK COMPLETE ===`);
+        
+        return {
+            totalChannels,
+            accessibleChannels,
+            issuesFound,
+            success: issuesFound.length === 0
+        };
+        
+    } catch (error) {
+        console.error("❌ Error in channels access check:", error);
+        return {
+            totalChannels: 0,
+            accessibleChannels: 0,
+            issuesFound: [`Global error: ${error.message}`],
+            success: false
+        };
+    }
+}
+
+function getRequiredPermissions(configType, channelType) {
+    const basePerms = [
+        { name: 'View Channel', permission: 'ViewChannel' },
+        { name: 'Send Messages', permission: 'SendMessages' }
+    ];
+    
+    if (configType === 'webhook' || configType === 'tracking') {
+        return [
+            ...basePerms,
+            { name: 'Manage Messages', permission: 'ManageMessages' },
+            { name: 'Embed Links', permission: 'EmbedLinks' }
+        ];
+    }
+    
+    // Pack forums need full thread creation capabilities
+    if (configType === 'pack-forum' || configType === 'legacy-doublestar') {
+        if (channelType === 15) { // Forum channel
+            return [
+                ...basePerms,
+                { name: 'Create Public Threads', permission: 'CreatePublicThreads' },
+                { name: 'Send Messages in Threads', permission: 'SendMessagesInThreads' },
+                { name: 'Manage Threads', permission: 'ManageThreads' },
+                { name: 'Attach Files', permission: 'AttachFiles' },
+                { name: 'Embed Links', permission: 'EmbedLinks' },
+                { name: 'Use External Emojis', permission: 'UseExternalEmojis' },
+                { name: 'Add Reactions', permission: 'AddReactions' }
+            ];
+        }
+    }
+    
+    return [
+        ...basePerms,
+        { name: 'Attach Files', permission: 'AttachFiles' },
+        { name: 'Embed Links', permission: 'EmbedLinks' }
+    ];
+}
+
+function getChannelTypeName(type) {
+    const typeNames = {
+        0: 'Text',
+        1: 'DM',
+        2: 'Voice',
+        3: 'Group DM',
+        4: 'Category',
+        5: 'Announcement',
+        10: 'News Thread',
+        11: 'Public Thread',
+        12: 'Private Thread',
+        13: 'Stage Voice',
+        14: 'Directory',
+        15: 'Forum',
+        16: 'Media'
+    };
+    return typeNames[type] || `Unknown (${type})`;
+}
+
+function determineContentType(threadName, cleanName) {
+    const lowerName = threadName.toLowerCase();
+    const lowerCleanName = cleanName.toLowerCase();
+    
+    // Check for explicit indicators
+    if (lowerName.includes('[gp]') || lowerName.includes('god pack')) {
+        return 'godpack';
+    }
+    
+    if (lowerName.includes('[tradeable cards]') || lowerName.includes('tradeable card')) {
+        return 'tradeable';
+    }
+    
+    if (lowerName.includes('double') || lowerName.includes('2 star') || lowerName.includes('2star')) {
+        return 'doublestar';
+    }
+    
+    // Check thread name patterns for tradeable cards
+    if (lowerCleanName.includes('full art') || 
+        lowerCleanName.includes('rainbow') || 
+        lowerCleanName.includes('special illustration') || 
+        lowerCleanName.includes('trainer') ||
+        lowerCleanName.includes('one star')) {
+        return 'tradeable';
+    }
+    
+    // Default to godpack if unclear (most common case)
+    return 'godpack';
+}
+
+function formatThreadName(cleanName, forumName, contentType) {
+    let formattedName = cleanName;
+    
+    // Add pack type if not already present
+    if (!formattedName.includes(`[${forumName}]`)) {
+        formattedName = `${formattedName}[${forumName}]`;
+    }
+    
+    // Add content type suffix based on type
+    if (contentType === 'godpack' && !formattedName.includes('[GP]')) {
+        formattedName += '[GP]';
+    } else if (contentType === 'tradeable' && !formattedName.includes('[Tradeable cards]')) {
+        formattedName = formattedName.replace(`[${forumName}]`, `[Tradeable cards][${forumName}]`);
+    } else if (contentType === 'doublestar' && !formattedName.includes('[2★]')) {
+        formattedName = formattedName.replace(`[${forumName}]`, `[2★][${forumName}]`);
+    }
+    
+    return formattedName;
+}
+
 // Now export all the functions for use in other modules
 export { 
     getGuild, 
@@ -2830,5 +3184,6 @@ export {
     createEnhancedStatsEmbed,
     getEnhancedSelectedPacksEmbedText,
     createTimelineStats,
-    createLeaderboards
+    createLeaderboards,
+    checkAllPackChannelsAccess
 };
