@@ -239,7 +239,6 @@ import {
     getTestSummary,
     extractGodpackIdFromMessage,
 } from './Dependencies/gpTestUtils.js';
-
 // Enhanced function to extract pack type from webhook message
 function extractPackTypeFromWebhook(webhookContent) {
     console.log(`🔍 Analyzing webhook content: ${webhookContent.substring(0, 100)}...`);
@@ -278,6 +277,48 @@ function extractPackTypeFromWebhook(webhookContent) {
     console.log("❓ Could not determine pack type, defaulting to Mewtwo");
     return "Mewtwo"; // Default fallback
 }
+
+// Helper function to unfollow all existing threads (run once to clean up)
+async function unfollowAllBotThreads(client, channelID) {
+    try {
+        const guild = await getGuild(client);
+        const channel = guild.channels.cache.get(channelID);
+        
+        if (!channel || channel.type !== 15) {
+            console.log(`❌ Channel ${channelID} is not a forum channel`);
+            return;
+        }
+
+        console.log(`🔍 Checking for threads to unfollow in ${channel.name}...`);
+        
+        // Get active threads
+        const activeThreads = await channel.threads.fetchActive();
+        
+        let unfollowCount = 0;
+        for (const [threadId, thread] of activeThreads.threads) {
+            try {
+                // Check if bot is following this thread
+                const members = await thread.members.fetch();
+                const botMember = members.get(client.user.id);
+                
+                if (botMember) {
+                    await thread.leave();
+                    unfollowCount++;
+                    console.log(`✅ Unfollowed: ${thread.name}`);
+                    await new Promise(resolve => setTimeout(resolve, 500)); // Rate limit protection
+                }
+            } catch (error) {
+                console.log(`⚠️ Could not unfollow ${thread.name}: ${error.message}`);
+            }
+        }
+        
+        console.log(`✅ Unfollowed ${unfollowCount} threads in ${channel.name}`);
+        
+    } catch (error) {
+        console.error("❌ Error unfollowing threads:", error);
+    }
+}
+
 // Function to log pack finds to channel when thread creation is disabled
 async function logPackFindToChannel(client, message, packType, cardType, accountName, packAmount, ownerID, accountID) {
     if (!logPackFindsToChannel) return;
@@ -413,7 +454,6 @@ async function processTradeableCardsWebhook(client, message) {
         console.error("❌ Error processing tradeable cards webhook:", error);
     }
 }
-
 // Global Var
 
 const client = new Client({
@@ -466,6 +506,34 @@ client.once(Events.ClientReady, async c => {
     const channelCheck = await checkAllPackChannelsAccess(client);
     if (!channelCheck.success) {
         console.log(`⚠️ Found ${channelCheck.issuesFound.length} channel issues that need attention`);
+    }
+
+    // Auto-cleanup threads on startup (optional)
+    console.log("🧹 Performing auto-cleanup of followed threads...");
+    try {
+        const packChannels = [
+            channelID_MewtwoVerificationForum,
+            channelID_CharizardVerificationForum,
+            channelID_PikachuVerificationForum,
+            channelID_MewVerificationForum,
+            channelID_DialgaVerificationForum,
+            channelID_PalkiaVerificationForum,
+            channelID_ArceusVerificationForum,
+            channelID_ShiningVerificationForum,
+            channelID_SolgaleoVerificationForum,
+            channelID_LunalaVerificationForum,
+            channelID_BuzzwoleVerificationForum
+        ];
+        
+        for (const channelID of packChannels) {
+            if (channelID) {
+                await unfollowAllBotThreads(client, channelID);
+                await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay between channels
+            }
+        }
+        console.log("✅ Auto-cleanup complete");
+    } catch (error) {
+        console.log("⚠️ Auto-cleanup failed:", error.message);
     }
 
     // Every "refreshInterval/2" mn it will alternate from sendUserStat to inactivityCheck
@@ -615,6 +683,30 @@ client.once(Events.ClientReady, async c => {
                 .setRequired(false)
         );
 
+    const unfollowThreadsDesc = localize("Arrête de suivre tous les threads du bot dans les forums de pack", "Unfollow all bot threads in pack forums");
+    const unfollowThreadsDescPack = localize("Type de pack à nettoyer (ou 'all' pour tous)", "Pack type to clean (or 'all' for all packs)");
+    const unfollowThreadsSCB = new SlashCommandBuilder()
+        .setName(`unfollowthreads`)
+        .setDescription(`${unfollowThreadsDesc}`)
+        .addStringOption(option =>
+            option.setName('pack')
+                .setDescription(`${unfollowThreadsDescPack}`)
+                .setRequired(false)
+                .addChoices(
+                    { name: 'All Packs', value: 'all' },
+                    { name: 'Mewtwo', value: 'mewtwo' },
+                    { name: 'Charizard', value: 'charizard' },
+                    { name: 'Pikachu', value: 'pikachu' },
+                    { name: 'Mew', value: 'mew' },
+                    { name: 'Dialga', value: 'dialga' },
+                    { name: 'Palkia', value: 'palkia' },
+                    { name: 'Arceus', value: 'arceus' },
+                    { name: 'Shining', value: 'shining' },
+                    { name: 'Solgaleo', value: 'solgaleo' },
+                    { name: 'Lunala', value: 'lunala' },
+                    { name: 'Buzzwole', value: 'buzzwole' }
+                ));
+
     const leechDesc = localize("Vous ajoute dans le doc d'ID comme leecher (onlyMain)", "Add yourself to the active rerollers list as leecher (onlyMain)");
     const leechDescUser = localize("ADMIN ONLY : pour forcer l'ajout' de quelqu'un d'autre", "ADMIN ONLY: Only useful to force-add someone other than yourself");
     const leechSCB = new SlashCommandBuilder()
@@ -626,7 +718,8 @@ client.once(Events.ClientReady, async c => {
                 .setDescription(`${leechDescUser}`)
                 .setRequired(false)
         );
-const refreshDesc = localize("Rafraichit la liste des Stats instantanément","Refresh the user stats instantly");
+
+    const refreshDesc = localize("Rafraichit la liste des Stats instantanément","Refresh the user stats instantly");
     const refreshSCB = new SlashCommandBuilder()
         .setName(`refresh`)
         .setDescription(`${refreshDesc}`);
@@ -671,7 +764,7 @@ const refreshDesc = localize("Rafraichit la liste des Stats instantanément","Re
         .setName(`lastactivity`)
         .setDescription(`${lastactivityDesc}`);
 
-const generateusernamesDesc = localize("Génère liste basé sur préfixe et, facultatif, des mots","Generate a list based on a prefix and, if desired, keywords");   
+    const generateusernamesDesc = localize("Génère liste basé sur préfixe et, facultatif, des mots","Generate a list based on a prefix and, if desired, keywords");   
     const generateusernamesDescPrefix = localize("Les 4 premières lettres premières lettres de votre pseudo","The first 4 letters of your username");   
     const generateusernamesDescKeyword = localize("Des mots clés qui seront assemblés aléatoirement, espace/virgule = séparation","Some keywords that will be assembled randomly, space or comma are separators");   
     const generateusernamesSCB = new SlashCommandBuilder()
@@ -827,6 +920,10 @@ const generateusernamesDesc = localize("Génère liste basé sur préfixe et, fa
     // Register the Test Summary command
     const testSummaryCommand = testSummarySCB.toJSON();
     client.application.commands.create(testSummaryCommand, guildID);
+
+    // Register the Unfollow Threads command
+    const unfollowThreadsCommand = unfollowThreadsSCB.toJSON();
+    client.application.commands.create(unfollowThreadsCommand, guildID);
 });
 client.on(Events.InteractionCreate, async interaction => {
 
@@ -865,6 +962,7 @@ client.on(Events.InteractionCreate, async interaction => {
         }
 
         if(!interaction.isChatInputCommand()) return;
+
 // SET PLAYER ID COMMAND
         if(interaction.commandName === `setplayerid`){
 
@@ -1081,6 +1179,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 await updateGPTrackingList(client);
             }
         }
+
 // NOT LIKED COMMAND
         if(interaction.commandName === `notliked`){
             
@@ -1185,6 +1284,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 await sendReceivedMessage(client, text_scam, interaction);
             }
         }
+
 // MISS COUNT COMMAND
         if(interaction.commandName === `misscount`){
 
@@ -1256,6 +1356,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
             await sendReceivedMessage(client, activityOutput, interaction);
         }
+
 // GENERATE USERNAMES COMMAND
         if(interaction.commandName === `generateusernames`){
 
@@ -1322,6 +1423,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 }]
             })
         }
+
 // SET AVERAGE INSTANCES COMMAND
         if(interaction.commandName === `setaverageinstances`){
 
@@ -1390,8 +1492,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 await sendReceivedMessage(client, `${text_minimumGP} **<@${interactionUserID}>**`, interaction);
             }
         }
-
-        // SET PREFIX COMMAND
+// SET PREFIX COMMAND
         if(interaction.commandName === `setprefix`){
 
             await interaction.deferReply();
@@ -1435,6 +1536,73 @@ client.on(Events.InteractionCreate, async interaction => {
             await sendReceivedMessage(client, text_listRefreshed, interaction, delayMsgDeleteState);
             await updateGPTrackingList(client);
         }
+
+        // UNFOLLOW THREADS COMMAND
+        if(interaction.commandName === `unfollowthreads`){
+            await interaction.deferReply({ ephemeral: true });
+            
+            const packType = interaction.options.getString('pack') || 'all';
+            
+            try {
+                let channelsToClean = [];
+                
+                if (packType === 'all') {
+                    // Clean all pack forums
+                    channelsToClean = [
+                        { name: 'Mewtwo', id: channelID_MewtwoVerificationForum },
+                        { name: 'Charizard', id: channelID_CharizardVerificationForum },
+                        { name: 'Pikachu', id: channelID_PikachuVerificationForum },
+                        { name: 'Mew', id: channelID_MewVerificationForum },
+                        { name: 'Dialga', id: channelID_DialgaVerificationForum },
+                        { name: 'Palkia', id: channelID_PalkiaVerificationForum },
+                        { name: 'Arceus', id: channelID_ArceusVerificationForum },
+                        { name: 'Shining', id: channelID_ShiningVerificationForum },
+                        { name: 'Solgaleo', id: channelID_SolgaleoVerificationForum },
+                        { name: 'Lunala', id: channelID_LunalaVerificationForum },
+                        { name: 'Buzzwole', id: channelID_BuzzwoleVerificationForum }
+                    ];
+                } else {
+                    // Clean specific pack forum
+                    const channelMap = {
+                        'mewtwo': { name: 'Mewtwo', id: channelID_MewtwoVerificationForum },
+                        'charizard': { name: 'Charizard', id: channelID_CharizardVerificationForum },
+                        'pikachu': { name: 'Pikachu', id: channelID_PikachuVerificationForum },
+                        'mew': { name: 'Mew', id: channelID_MewVerificationForum },
+                        'dialga': { name: 'Dialga', id: channelID_DialgaVerificationForum },
+                        'palkia': { name: 'Palkia', id: channelID_PalkiaVerificationForum },
+                        'arceus': { name: 'Arceus', id: channelID_ArceusVerificationForum },
+                        'shining': { name: 'Shining', id: channelID_ShiningVerificationForum },
+                        'solgaleo': { name: 'Solgaleo', id: channelID_SolgaleoVerificationForum },
+                        'lunala': { name: 'Lunala', id: channelID_LunalaVerificationForum },
+                        'buzzwole': { name: 'Buzzwole', id: channelID_BuzzwoleVerificationForum }
+                    };
+                    
+                    if (channelMap[packType]) {
+                        channelsToClean = [channelMap[packType]];
+                    }
+                }
+                
+                for (const channel of channelsToClean) {
+                    if (channel.id) {
+                        await unfollowAllBotThreads(client, channel.id);
+                    }
+                }
+                
+                const text_unfollowComplete = localize(
+                    `Nettoyage terminé pour ${packType === 'all' ? 'tous les packs' : packType}`,
+                    `Cleanup complete for ${packType === 'all' ? 'all packs' : packType}`
+                );
+                
+                await interaction.editReply({ content: text_unfollowComplete });
+                
+            } catch (error) {
+                console.error('Error in unfollowthreads command:', error);
+                await interaction.editReply({ 
+                    content: localize("Une erreur s'est produite", "An error occurred") 
+                });
+            }
+        }
+
 // NOSHOW COMMAND
         if(interaction.commandName === `noshow`){
             await interaction.deferReply();
@@ -1724,8 +1892,7 @@ client.on("messageCreate", async (message) => {
                     if (packInfoMatch && packInfoMatch.length >= 3) {
                         packAmount = packInfoMatch[1];
                     }
-                    
-                    await logPackFindToChannel(client, message, packBoosterType, cardType, accountName, packAmount, ownerID, "NOTRADEID");
+await logPackFindToChannel(client, message, packBoosterType, cardType, accountName, packAmount, ownerID, "NOTRADEID");
                 }
             }
 // Handle the old format of Double messages
@@ -1762,6 +1929,7 @@ client.on("messageCreate", async (message) => {
             await addServerGP(attrib_ineligibleGP, message);
         }
     }
+
 if (message.channel.id === channelID_Heartbeat)
     {
         const text_WrongHB = localize("Quelqu'un a mal configuré ses paramètres Heartbeat","Heartbeat settings are incorrectly configured.");
