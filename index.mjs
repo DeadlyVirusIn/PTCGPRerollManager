@@ -135,6 +135,7 @@ import {
     updateGPTrackingList,
     createTimelineStats,
     checkAllPackChannelsAccess,
+    verifyAllChannels,
 } from './Dependencies/coreUtils.js';
 
 import {
@@ -447,7 +448,10 @@ client.once(Events.ClientReady, async c => {
 
     const guild = await getGuild(client);
 
-    // ADD THIS LINE to check all channels on startup:
+    // Verify all channels first
+    await verifyAllChannels(client);
+
+    // Then do the detailed channel access check
     const channelCheck = await checkAllPackChannelsAccess(client);
     if (!channelCheck.success) {
         console.log(`⚠️ Found ${channelCheck.issuesFound.length} channel issues that need attention`);
