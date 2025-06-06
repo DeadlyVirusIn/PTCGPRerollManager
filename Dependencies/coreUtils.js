@@ -2169,48 +2169,20 @@ function extractDoubleStarInfo(message) {
     }
 }
 
-// Updated createForumPost function to prevent auto-following threads
-async function createForumPost(client, message, channelID, gpType, titleName, userID, accountID, packAmount, packType) {
+// Enhanced createForumPost function - Replace your existing function with this complete version
+async function createForumPost(client, message, channelID, cardType, titleName, ownerID, accountID, packAmount, packType = null) {
     try {
         const guild = await getGuild(client);
-        let channel = guild.channels.cache.get(channelID);
+        const forumChannel = guild.channels.cache.get(channelID);
         
-        if (!channel) {
-            console.log(`📡 Channel ${channelID} not in cache, attempting to fetch...`);
-            channel = await client.channels.fetch(channelID);
-        }
-
-        if (!channel) {
-            console.log(`❌ Channel ${channelID} not found`);
+        if (!forumChannel || forumChannel.type !== 15) {
+            console.log(`❌ Channel ${channelID} is not a forum channel`);
             return;
         }
 
-        console.log(`📝 Creating enhanced forum post in channel: ${channel.name} (${channel.id})`);
+        console.log(`🏗️ Creating forum post in ${forumChannel.name}...`);
 
-        // Extract the pack type with enhanced function
-        const detectedPackType = packType || extractPackTypeFromWebhook(message.content);
-        
-        // Create the structured content that matches the Discord webhook format
-        let threadContent = "";
-        
-        if (gpType === "God Pack") {
-            threadContent += `🎯 **God Pack found by <@${userID}>!**\n`;
-        } else {
-            threadContent += `🎴 **Tradeable cards found by <@${userID}>!**\n`;
-        }
-        
-        threadContent += `📦 **Pack Type:** ${detectedPackType}\n`;
-        const accountName = titleName.split(' [')[0];
-        threadContent += `👤 **Account:** ${accountName}\n`;
-        threadContent += `📊 **Packs Opened:** ${packAmount}\n`;
-        
-        if (accountID && accountID !== "0000000000000000" && accountID !== "NOTRADEID") {
-            threadContent += `🆔 **Account ID:** ${accountID}\n`;
-        }
-        
-        threadContent += `🔗 **Source:** ${message.url}\n\n`;
-
-        // Get image URL from webhook message
+        // Check if message has attachment
         let imageUrl = "";
         if (message.attachments && message.attachments.size > 0) {
             imageUrl = message.attachments.first().url;
@@ -2218,172 +2190,138 @@ async function createForumPost(client, message, channelID, gpType, titleName, us
             imageUrl = message.embeds[0].image.url;
         }
 
-        // Get active users for tag management
-        const activeUsers = await getActiveUsers(false, true);
-        const activeUserIDs = getIDFromUsers(activeUsers);
-
-        // Determine tags based on user state and pack type
-        let autoApplyTags = [];
-        if (channel.availableTags && channel.availableTags.length > 0) {
-            const availableTags = channel.availableTags;
-            
-            // Auto-apply pack type tag if it exists
-            const packTypeTag = availableTags.find(tag => 
-                tag.name.toLowerCase().includes(detectedPackType.toLowerCase())
-            );
-            if (packTypeTag) {
-                autoApplyTags.push(packTypeTag.id);
-            }
-
-            // Check if user is active and apply appropriate tags
-            if (activeUserIDs.includes(userID)) {
-                const activeTag = availableTags.find(tag => 
-                    tag.name.toLowerCase() === 'active' || 
-                    tag.name.toLowerCase() === 'actif'
-                );
-                if (activeTag) {
-                    autoApplyTags.push(activeTag.id);
-                }
-            } else {
-                const inactiveTag = availableTags.find(tag => 
-                    tag.name.toLowerCase() === 'inactive' || 
-                    tag.name.toLowerCase() === 'inactif'
-                );
-                if (inactiveTag) {
-                    autoApplyTags.push(inactiveTag.id);
-                }
-            }
+        // Create the initial post content
+        let postContent = message.content;
+        
+        // Add account ID information if available and not a placeholder
+        if (accountID && accountID !== "0000000000000000" && accountID !== "NOTRADEID") {
+            postContent += `\n\n**Account ID:** ${accountID}`;
         }
 
-        // ===== FIX: Create thread without auto-following =====
-        const forumPost = await channel.threads.create({
-            name: titleName,
-            autoArchiveDuration: 4320, // 3 days (can be 60, 1440, 4320, 10080)
-            message: {
-                content: threadContent,
-                embeds: imageUrl ? [{
-                    image: { url: imageUrl },
-                    color: 0xf02f7e
-                }] : undefined
-            },
-            appliedTags: autoApplyTags.length > 0 ? autoApplyTags : undefined,
-            // This is the key setting to prevent auto-following
-            rateLimitPerUser: 0 // No slowmode, but helps with thread creation
-        });
+        // Add source link
+        postContent += `\n\n**Source:** ${message.url}`;
 
-        console.log(`✅ Created enhanced forum post: ${forumPost.name} (ID: ${forumPost.id})`);
-
-        // ===== CRITICAL FIX: Immediately unfollow the thread for the bot =====
-        try {
-            // The bot automatically follows threads it creates, so we unfollow it
-            await forumPost.leave();
-            console.log(`✅ Bot unfollowed thread to prevent auto-following others`);
-        } catch (unfollowError) {
-            console.log(`⚠️ Could not unfollow thread: ${unfollowError.message}`);
-        }
-
-        // Add the appropriate emoji reactions if this is a God Pack
-        if (gpType === "God Pack") {
+        // Extract pack information for God Packs
+        if (cardType === "God Pack" && message.content.toLowerCase().includes("god pack found")) {
             try {
-                const messages = await forumPost.messages.fetch({ limit: 1 });
-                const firstMessage = messages.first();
+                // Extract the miss information from the message content
+                const missMatch = message.content.match(/\[ (\d+) miss \/ (\d+) \]/);
                 
-                if (firstMessage) {
-                    await firstMessage.react('✅');
-                    await firstMessage.react('❌');
-                    await firstMessage.react('👍');
-                    await firstMessage.react('👎');
+                if (missMatch) {
+                    const currentMiss = missMatch[1];
+                    const totalMissNeeded = missMatch[2];
+                    
+                    // Add miss counter to the forum post
+                    postContent += `\n\n**Miss Counter:** [ ${currentMiss} miss / ${totalMissNeeded} ]`;
+                    console.log(`📊 Added miss counter: ${currentMiss}/${totalMissNeeded}`);
                 }
-            } catch (reactionError) {
-                console.log(`⚠️ Could not add reactions: ${reactionError.message}`);
+            } catch (missError) {
+                console.log("⚠️ Could not extract miss information:", missError.message);
             }
         }
 
-        // Wait for thread to be fully created
+        // Create the forum post data
+        const forumPostData = {
+            name: titleName,
+            message: {
+                content: postContent
+            }
+        };
+
+        // Add image if available
+        if (imageUrl) {
+            forumPostData.message.embeds = [{
+                image: { url: imageUrl },
+                color: 0xf02f7e
+            }];
+        }
+
+        // Add auto-archive duration (24 hours for forum posts)
+        forumPostData.autoArchiveDuration = 1440; // 24 hours in minutes
+
+        // Create the forum post
+        console.log(`📝 Creating forum post with title: "${titleName}"`);
+        const createdThread = await forumChannel.threads.create(forumPostData);
+        
+        console.log(`✅ Forum post created: ${createdThread.name} (ID: ${createdThread.id})`);
+
+        // IMMEDIATELY LEAVE THE THREAD - This is the key fix!
+        try {
+            await createdThread.leave();
+            console.log(`🚪 Bot immediately left thread: ${createdThread.name}`);
+        } catch (leaveError) {
+            console.log(`⚠️ Could not leave thread ${createdThread.name}: ${leaveError.message}`);
+            
+            // Try alternative method if first fails
+            try {
+                await createdThread.members.remove(client.user.id);
+                console.log(`🚪 Bot removed itself from thread: ${createdThread.name}`);
+            } catch (removeError) {
+                console.log(`⚠️ Could not remove bot from thread: ${removeError.message}`);
+            }
+        }
+
+        // Add a small delay to ensure the leave operation completes
         await new Promise(resolve => setTimeout(resolve, 1000));
 
-        // Get the thread channel and send additional messages
-        let threadChannel;
+        // Verify the bot is no longer in the thread
         try {
-            threadChannel = guild.channels.cache.get(forumPost.id) || await client.channels.fetch(forumPost.id);
+            const members = await createdThread.members.fetch();
+            const botMember = members.get(client.user.id);
             
-            if (threadChannel) {
-                // Post appropriate message based on account ID type
-                if (accountID == "0000000000000000" || accountID == "NOTRADEID") {
-                    if (accountID == "NOTRADEID") {
-                        const text_tradeableCard = localize(
-                            "🎴 **Carte échangeable** - Aucun ID d'ami requis pour ce type de carte",
-                            "🎴 **Tradeable Card** - No friend ID required for this card type"
-                        );
-                        await threadChannel.send({ content: text_tradeableCard });
-                    } else {
-                        const text_incorrectID = localize(
-                            "L'ID du compte est incorrect :\n- Injecter le compte pour retrouver l'ID\n- Reposter le GP dans le webhook avec l'ID entre parenthèse\n- Faites /removegpfound @LaPersonneQuiLaDrop\n- Supprimer ce post",
-                            "The account ID is incorrect:\n- Inject the account to find the ID\n- Repost the GP in the webhook with the ID in parentheses\n- Do /removegpfound @UserThatDroppedIt\n- Delete this post"
-                        );
-                        await threadChannel.send({ content: `# ⚠️ ${text_incorrectID}` });
-                    }
-                } else {
-                    await threadChannel.send({
-                        content: `${accountID} is the id of the account\n-# You can copy paste this message in PocketTCG to look for this account`
-                    });
-                }
+            if (botMember) {
+                console.log(`⚠️ Bot still in thread after leave attempt, trying again...`);
+                await createdThread.leave();
+            } else {
+                console.log(`✅ Confirmed: Bot successfully left thread ${createdThread.name}`);
             }
-        } catch (error) {
-            console.error(`❌ Error sending additional messages:`, error.message);
+        } catch (verifyError) {
+            console.log(`⚠️ Could not verify thread leave status: ${verifyError.message}`);
         }
 
-        // Update user stats if not a tradeable card
-        if (accountID !== "NOTRADEID") {
-            try {
-                const currentGPCount = await getUserAttribValue(client, userID, attrib_GodPackFound, 0);
-                const newGPCount = parseInt(currentGPCount) + 1;
-                
-                await setUserAttribValue(userID, (await client.users.fetch(userID)).username, attrib_GodPackFound, newGPCount);
-                console.log(`📊 Updated GP count for user ${userID}: ${newGPCount}`);
-
-                await addServerGP(attrib_eligibleGP, forumPost);
-                console.log(`📊 Added GP to server tracking`);
-            } catch (error) {
-                console.error("❌ Error updating user stats:", error);
-            }
+        // Add to server data for tracking
+        try {
+            await addServerGP(attrib_eligibleGP, createdThread);
+            console.log(`📊 Added thread to server tracking: ${createdThread.name}`);
+        } catch (trackingError) {
+            console.log(`⚠️ Could not add to server tracking: ${trackingError.message}`);
         }
 
-        // Send notification if notifications are enabled
-        if (notificationsEnabled) {
-            try {
-                const user = await client.users.fetch(userID);
-                const userMention = `<@${userID}>`;
-                
-                let notificationContent;
-                if (accountID === "NOTRADEID") {
-                    const text_notificationTradeable = localize(
-                        `🎉 ${userMention} a trouvé une carte échangeable ${gpType} dans ${packAmount} pack(s) !`,
-                        `🎉 ${userMention} found a tradeable ${gpType} card in ${packAmount} pack(s)!`
-                    );
-                    notificationContent = `${text_notificationTradeable}\n📍 ${forumPost.url}`;
-                } else {
-                    const text_notification = localize(
-                        `🎉 ${userMention} a trouvé un God Pack ${gpType} dans ${packAmount} pack(s) !`,
-                        `🎉 ${userMention} found a ${gpType} God Pack in ${packAmount} pack(s)!`
-                    );
-                    notificationContent = `${text_notification}\n📍 ${forumPost.url}`;
-                }
-
-                const notificationChannel = guild.channels.cache.get(channelID_Notifications);
-                if (notificationChannel) {
-                    await notificationChannel.send({ content: notificationContent });
-                    console.log(`📢 Sent notification to ${notificationChannel.name}`);
-                }
-            } catch (error) {
-                console.error("❌ Error sending notification:", error);
-            }
-        }
-
-        return forumPost;
-
+        return createdThread;
+        
     } catch (error) {
         console.error("❌ Error creating forum post:", error);
+        
+        // If there's an error, try to find and leave any threads we might have joined
+        try {
+            const guild = await getGuild(client);
+            const forumChannel = guild.channels.cache.get(channelID);
+            
+            if (forumChannel && forumChannel.type === 15) {
+                const activeThreads = await forumChannel.threads.fetchActive();
+                
+                for (const [threadId, thread] of activeThreads.threads) {
+                    if (thread.name === titleName) {
+                        try {
+                            const members = await thread.members.fetch();
+                            const botMember = members.get(client.user.id);
+                            
+                            if (botMember) {
+                                await thread.leave();
+                                console.log(`🚪 Emergency: Left thread after error: ${thread.name}`);
+                            }
+                        } catch (emergencyLeaveError) {
+                            console.log(`⚠️ Could not emergency leave thread: ${emergencyLeaveError.message}`);
+                        }
+                        break; // Stop after finding the matching thread
+                    }
+                }
+            }
+        } catch (emergencyError) {
+            console.log(`⚠️ Emergency cleanup failed: ${emergencyError.message}`);
+        }
+        
+        // Re-throw the error so the calling function knows it failed
         throw error;
     }
 }
