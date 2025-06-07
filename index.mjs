@@ -380,32 +380,26 @@ async function processTradeableCardsWebhook(client, message) {
         const packType = extractPackTypeFromWebhook(message.content);
         console.log(`📦 Detected pack type: ${packType}`);
         
-        // Updated regex patterns for the new format
+        // For tradeable cards, extract different info
         const regexOwnerID = /<@(\d+)>/;
-        const regexFoundBy = /Tradeable cards found by (\S+)/i;
+        const regexFoundBy = /([A-Za-z\s]+) found by (\S+)/i;
         const regexPackInfo = /\((\d+) packs?, ([^)]+)\)/;
         
         const ownerIDMatch = message.content.match(regexOwnerID);
         const foundByMatch = message.content.match(regexFoundBy);
         const packInfoMatch = message.content.match(regexPackInfo);
         
-        console.log("🔍 Regex extraction results:");
-        console.log(`   Owner ID: ${ownerIDMatch ? ownerIDMatch[1] : 'NOT FOUND'}`);
-        console.log(`   Found By: ${foundByMatch ? foundByMatch[1] : 'NOT FOUND'}`);
-        console.log(`   Pack Info: ${packInfoMatch ? packInfoMatch[0] : 'NOT FOUND'}`);
-        
         const ownerID = ownerIDMatch ? ownerIDMatch[1] : "0000000000000000";
-        const accountName = foundByMatch ? foundByMatch[1] : "NoAccountName";
+        let cardType = "Unknown";
+        let accountName = "NoAccountName";
         
-        // Extract card type from the "Found:" line
-        let cardType = "Tradeable Card";
-        const foundLine = message.content.split('\n').find(line => line.startsWith('Found:'));
-        if (foundLine) {
-            cardType = foundLine.replace('Found:', '').trim();
+        if (foundByMatch && foundByMatch.length >= 3) {
+            cardType = foundByMatch[1].trim();
+            accountName = foundByMatch[2];
         }
         
         let packAmount = "1";
-        if (packInfoMatch && packInfoMatch.length >= 2) {
+        if (packInfoMatch && packInfoMatch.length >= 3) {
             packAmount = packInfoMatch[1];
         }
         
@@ -420,7 +414,7 @@ async function processTradeableCardsWebhook(client, message) {
             return;
         }
         
-        // Check if this is a God Pack (shouldn't happen here but just in case)
+        // Check if this is a God Pack
         const isGodPack = message.content.toLowerCase().includes("god pack found");
         
         // Determine if we should create a thread based on configuration
@@ -431,17 +425,17 @@ async function processTradeableCardsWebhook(client, message) {
             const targetChannelID = await getPackSpecificChannel(packType);
             console.log(`🎯 Target channel ID: ${targetChannelID}`);
             
-            // Create the title for the forum post - CLEAN FORMAT
+            // Create the title for the forum post
             const titleName = `${accountName} [${packAmount}P]`;
             console.log(`📝 Forum post title: ${titleName}`);
             
-            // Create forum post with proper formatting
+            // Create forum post - pass "NOTRADEID" as placeholder for account ID
             await createForumPost(
                 client,
                 message,              // The original webhook message
                 targetChannelID,      // Pack-specific forum channel
-                cardType,            // Card type (e.g., "One Star (x1)")
-                titleName,           // The formatted title: "DV-437 [11P]"
+                cardType,            // Card type (e.g., "Full Art", "Rainbow")
+                titleName,           // The formatted title
                 ownerID,             // Discord user ID who found it
                 "NOTRADEID",         // Placeholder for account ID since tradeable cards don't have friend codes
                 packAmount,          // Number of packs
@@ -460,7 +454,6 @@ async function processTradeableCardsWebhook(client, message) {
         console.error("❌ Error processing tradeable cards webhook:", error);
     }
 }
-
 // Global Var
 
 const client = new Client({
@@ -479,104 +472,6 @@ function getNexIntervalRemainingTime() {
     const elapsedTime = currentTime - startIntervalTime;
     const timeRemaining = (refreshInterval) - convertMsToMn(elapsedTime);
     return timeRemaining;
-}
-
-// Aggressive cleanup function - finds and leaves ALL threads the bot is following
-async function aggressiveThreadCleanup(client) {
-    try {
-        console.log("🧹 Starting aggressive thread cleanup...");
-        const guild = await getGuild(client);
-        
-        // Get all forum channels
-        const packChannels = [
-            channelID_MewtwoVerificationForum,
-            channelID_CharizardVerificationForum,
-            channelID_PikachuVerificationForum,
-            channelID_MewVerificationForum,
-            channelID_DialgaVerificationForum,
-            channelID_PalkiaVerificationForum,
-            channelID_ArceusVerificationForum,
-            channelID_ShiningVerificationForum,
-            channelID_SolgaleoVerificationForum,
-            channelID_LunalaVerificationForum,
-            channelID_BuzzwoleVerificationForum,
-            channelID_2StarVerificationForum
-        ].filter(id => id && id !== ""); // Remove empty channel IDs
-        
-        let totalUnfollowed = 0;
-        
-        for (const channelID of packChannels) {
-            try {
-                const channel = guild.channels.cache.get(channelID);
-                
-                if (!channel || channel.type !== 15) {
-                    console.log(`⚠️ Skipping invalid channel: ${channelID}`);
-                    continue;
-                }
-                
-                console.log(`🔍 Checking ${channel.name} for followed threads...`);
-                
-                // Get both active and archived threads
-                const activeThreads = await channel.threads.fetchActive();
-                const archivedThreads = await channel.threads.fetchArchived({ fetchAll: true });
-                
-                // Combine all threads
-                const allThreads = new Map([
-                    ...activeThreads.threads,
-                    ...archivedThreads.threads
-                ]);
-                
-                console.log(`📊 Found ${allThreads.size} total threads in ${channel.name}`);
-                
-                let channelUnfollowed = 0;
-                
-                for (const [threadId, thread] of allThreads) {
-                    try {
-                        // Check if bot is a member of this thread
-                        const members = await thread.members.fetch();
-                        const botMember = members.get(client.user.id);
-                        
-                        if (botMember) {
-                            await thread.leave();
-                            channelUnfollowed++;
-                            totalUnfollowed++;
-                            console.log(`✅ Unfollowed: ${thread.name} (${threadId})`);
-                            
-                            // Rate limit protection
-                            await new Promise(resolve => setTimeout(resolve, 500));
-                        }
-                    } catch (threadError) {
-                        console.log(`⚠️ Could not process thread ${threadId}: ${threadError.message}`);
-                    }
-                }
-                
-                console.log(`✅ Unfollowed ${channelUnfollowed} threads in ${channel.name}`);
-                
-                // Delay between channels to avoid rate limits
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                
-            } catch (channelError) {
-                console.error(`❌ Error processing channel ${channelID}:`, channelError);
-            }
-        }
-        
-        console.log(`🎉 Aggressive cleanup complete! Total threads unfollowed: ${totalUnfollowed}`);
-        
-        // Also check for any other forum channels that might exist
-        console.log("🔍 Checking for any other forum channels...");
-        const allChannels = guild.channels.cache.filter(channel => channel.type === 15);
-        
-        for (const [channelId, channel] of allChannels) {
-            if (!packChannels.includes(channelId)) {
-                console.log(`⚠️ Found additional forum channel: ${channel.name} (${channelId})`);
-                // Optionally clean this too
-                await unfollowAllBotThreads(client, channelId);
-            }
-        }
-        
-    } catch (error) {
-        console.error("❌ Aggressive cleanup failed:", error);
-    }
 }
 
 // Setup scheduled jobs function
@@ -948,13 +843,6 @@ client.once(Events.ClientReady, async c => {
     const testSummarySCB = new SlashCommandBuilder()
         .setName(`testsummary`)
         .setDescription(`${testSummaryDesc}`);
-
- // Aggressive cleanup command definition
-    const aggressiveCleanupSCB = new SlashCommandBuilder()
-        .setName(`aggressivecleanup`)
-        .setDescription(localize("ADMIN: Nettoie TOUS les threads suivis par le bot", "ADMIN: Clean up ALL threads followed by the bot"));
-
-
 // Register all commands
     const playeridCommand = playeridSCB.toJSON();
     client.application.commands.create(playeridCommand, guildID);
@@ -1037,7 +925,6 @@ client.once(Events.ClientReady, async c => {
     const unfollowThreadsCommand = unfollowThreadsSCB.toJSON();
     client.application.commands.create(unfollowThreadsCommand, guildID);
 });
-
 client.on(Events.InteractionCreate, async interaction => {
 
     var interactionUserName = interaction.user.username;
@@ -1207,7 +1094,6 @@ client.on(Events.InteractionCreate, async interaction => {
 
             setUserState(client, user, "leech", interaction)
         }
-
 // REFRESH COMMAND
         if(interaction.commandName === `refresh`){
             
@@ -1394,8 +1280,7 @@ client.on(Events.InteractionCreate, async interaction => {
                     await sendReceivedMessage(client, text_notCompatible, interaction);
                 }
             }
-            else{
-                await sendReceivedMessage(client, text_scam, interaction);
+            else{await sendReceivedMessage(client, text_scam, interaction);
             }
         }
 
@@ -1606,8 +1491,7 @@ client.on(Events.InteractionCreate, async interaction => {
                 await sendReceivedMessage(client, `${text_minimumGP} **<@${interactionUserID}>**`, interaction);
             }
         }
-
-        // SET PREFIX COMMAND
+// SET PREFIX COMMAND
         if(interaction.commandName === `setprefix`){
 
             await interaction.deferReply();
@@ -1827,36 +1711,11 @@ client.on(Events.InteractionCreate, async interaction => {
             }
         }
 
-        // AGGRESSIVE CLEANUP COMMAND (ADMIN ONLY)
-        if(interaction.commandName === `aggressivecleanup`){
-            await interaction.deferReply({ ephemeral: true });
-            
-            // Check for admin permissions
-            if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-                return await interaction.editReply({ 
-                    content: localize("Vous devez être administrateur", "You must be an administrator") 
-                });
-            }
-            
-            await interaction.editReply({ 
-                content: localize("Démarrage du nettoyage agressif...", "Starting aggressive cleanup...") 
-            });
-            
-            await aggressiveThreadCleanup(client);
-            
-            await interaction.followUp({ 
-                content: localize("Nettoyage agressif terminé!", "Aggressive cleanup complete!"),
-                ephemeral: true 
-            });
-        }
-
     }
     catch(error){
         console.error('❌ ERROR - Crash Prevented\n', error);
     }
 });
-
-
 client.on("messageCreate", async (message) => {
     const guild = await getGuild(client);
 
@@ -1910,9 +1769,7 @@ client.on("messageCreate", async (message) => {
                     await logPackFindToChannel(client, message, gpInfo.packBoosterType, "God Pack", gpInfo.accountName, gpInfo.packAmount, gpInfo.ownerID, gpInfo.accountID);
                 }
             }
-            
-
-// Handle any other card types that contain "found by" - ENHANCED VERSION
+            // Handle any other card types that contain "found by" - ENHANCED VERSION
             else if (message.content.toLowerCase().includes("found by")) {
                 console.log("🎴 === PROCESSING TRADEABLE CARD ===");
                 
@@ -1927,9 +1784,9 @@ client.on("messageCreate", async (message) => {
                     const targetChannel = await getPackSpecificChannel(packBoosterType);
                     console.log(`🎯 Target channel: ${targetChannel}`);
                     
-                    // Updated regex patterns for new webhook format
+                    // Extract information for tradeable cards
                     const regexOwnerID = /<@(\d+)>/;
-                    const regexFoundBy = /Tradeable cards found by (\S+)/i; // Updated for new format
+                    const regexFoundBy = /([A-Za-z\s]+) found by (\S+)/i;
                     const regexPackInfo = /\((\d+) packs?, ([^)]+)\)/;
                     const regexAccountID = /\((\d+)\)/g; // Global flag to find all matches
                     
@@ -1945,13 +1802,12 @@ client.on("messageCreate", async (message) => {
                     console.log(`   All parentheses matches: ${accountIDMatches.map(match => match[0]).join(', ')}`);
                     
                     const ownerID = ownerIDMatch ? ownerIDMatch[1] : "0000000000000000";
-                    const accountName = foundByMatch ? foundByMatch[1] : "NoAccountName"; // Updated extraction
+                    let cardType = "Tradeable Card"; // Set default for tradeable cards
+                    let accountName = "NoAccountName";
                     
-                    // Extract card type from the "Found:" line
-                    let cardType = "Tradeable Card";
-                    const foundLine = message.content.split('\n').find(line => line.startsWith('Found:'));
-                    if (foundLine) {
-                        cardType = foundLine.replace('Found:', '').trim();
+                    if (foundByMatch && foundByMatch.length >= 3) {
+                        cardType = foundByMatch[1].trim();
+                        accountName = foundByMatch[2];
                     }
                     
                     // Smart logic to determine if there's a valid friend ID
@@ -1974,7 +1830,7 @@ client.on("messageCreate", async (message) => {
                     
                     // Extract pack amount
                     let packAmount = "1";
-                    if (packInfoMatch && packInfoMatch.length >= 2) {
+                    if (packInfoMatch && packInfoMatch.length >= 3) {
                         packAmount = packInfoMatch[1];
                     }
                     
@@ -1997,7 +1853,7 @@ client.on("messageCreate", async (message) => {
                         return;
                     }
                     
-                    // Format the title - CLEAN FORMAT
+                    // Format the title
                     const titleName = `${accountName} [${packAmount}P]`;
                     console.log(`📝 Forum post title: ${titleName}`);
                     
@@ -2015,7 +1871,7 @@ client.on("messageCreate", async (message) => {
                     // Extract basic info for logging when threads are disabled
                     const packBoosterType = extractPackTypeFromWebhook(message.content);
                     const regexOwnerID = /<@(\d+)>/;
-                    const regexFoundBy = /Tradeable cards found by (\S+)/i; // Updated for new format
+                    const regexFoundBy = /([A-Za-z\s]+) found by (\S+)/i;
                     const regexPackInfo = /\((\d+) packs?, ([^)]+)\)/;
                     
                     const ownerIDMatch = message.content.match(regexOwnerID);
@@ -2023,24 +1879,22 @@ client.on("messageCreate", async (message) => {
                     const packInfoMatch = message.content.match(regexPackInfo);
                     
                     const ownerID = ownerIDMatch ? ownerIDMatch[1] : "0000000000000000";
-                    const accountName = foundByMatch ? foundByMatch[1] : "NoAccountName"; // Updated extraction
-                    
-                    // Extract card type from the "Found:" line
                     let cardType = "Tradeable Card";
-                    const foundLine = message.content.split('\n').find(line => line.startsWith('Found:'));
-                    if (foundLine) {
-                        cardType = foundLine.replace('Found:', '').trim();
+                    let accountName = "NoAccountName";
+                    
+                    if (foundByMatch && foundByMatch.length >= 3) {
+                        cardType = foundByMatch[1].trim();
+                        accountName = foundByMatch[2];
                     }
                     
                     let packAmount = "1";
-                    if (packInfoMatch && packInfoMatch.length >= 2) {
+                    if (packInfoMatch && packInfoMatch.length >= 3) {
                         packAmount = packInfoMatch[1];
                     }
-                    
-                    await logPackFindToChannel(client, message, packBoosterType, cardType, accountName, packAmount, ownerID, "NOTRADEID");
+await logPackFindToChannel(client, message, packBoosterType, cardType, accountName, packAmount, ownerID, "NOTRADEID");
                 }
             }
-            // Handle the old format of Double messages
+// Handle the old format of Double messages
             else if (message.content.toLowerCase().includes("double")) {
                 if(channelID_2StarVerificationForum == ""){return;}
 
