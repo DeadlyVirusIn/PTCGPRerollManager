@@ -2190,18 +2190,54 @@ async function createForumPost(client, message, channelID, cardType, titleName, 
             imageUrl = message.embeds[0].image.url;
         }
 
-        // Create the initial post content
-        let postContent = message.content;
-        
-        // Add account ID information if available and not a placeholder
+        // Create the rich embed that matches the screenshot format
+        const embed = new EmbedBuilder()
+            .setColor('#f02f7e') // Pink color matching the screenshot
+            .setTitle(`🎉 ${cardType} found by <@${ownerID}>!`)
+            .addFields(
+                { 
+                    name: '📦 Pack Type', 
+                    value: packType || 'Unknown', 
+                    inline: true 
+                },
+                { 
+                    name: '👤 Account', 
+                    value: titleName.split(' ')[0] || 'Unknown', // Extract account name from title
+                    inline: true 
+                },
+                { 
+                    name: '📊 Packs Opened', 
+                    value: packAmount.toString(), 
+                    inline: true 
+                }
+            );
+
+        // Add account ID if available and not a placeholder
         if (accountID && accountID !== "0000000000000000" && accountID !== "NOTRADEID") {
-            postContent += `\n\n**Account ID:** ${accountID}`;
+            embed.addFields({ 
+                name: '🆔 Account ID', 
+                value: accountID, 
+                inline: true 
+            });
         }
 
-        // Add source link
-        postContent += `\n\n**Source:** ${message.url}`;
+        // Add source information
+        embed.addFields({ 
+            name: '🔗 Source', 
+            value: `[Original Message](${message.url})`, 
+            inline: false 
+        });
 
-        // Extract pack information for God Packs
+        // Add the card image if available
+        if (imageUrl) {
+            embed.setImage(imageUrl);
+        }
+
+        // Add timestamp
+        embed.setTimestamp();
+
+        // Extract miss information for God Packs
+        let postContent = '';
         if (cardType === "God Pack" && message.content.toLowerCase().includes("god pack found")) {
             try {
                 // Extract the miss information from the message content
@@ -2211,8 +2247,13 @@ async function createForumPost(client, message, channelID, cardType, titleName, 
                     const currentMiss = missMatch[1];
                     const totalMissNeeded = missMatch[2];
                     
-                    // Add miss counter to the forum post
-                    postContent += `\n\n**Miss Counter:** [ ${currentMiss} miss / ${totalMissNeeded} ]`;
+                    // Add miss counter to the embed
+                    embed.addFields({
+                        name: '📊 Miss Counter',
+                        value: `[ ${currentMiss} miss / ${totalMissNeeded} ]`,
+                        inline: true
+                    });
+                    
                     console.log(`📊 Added miss counter: ${currentMiss}/${totalMissNeeded}`);
                 }
             } catch (missError) {
@@ -2220,21 +2261,14 @@ async function createForumPost(client, message, channelID, cardType, titleName, 
             }
         }
 
-        // Create the forum post data
+        // Create the forum post data with the rich embed
         const forumPostData = {
             name: titleName,
             message: {
-                content: postContent
+                content: postContent,
+                embeds: [embed]
             }
         };
-
-        // Add image if available
-        if (imageUrl) {
-            forumPostData.message.embeds = [{
-                image: { url: imageUrl },
-                color: 0xf02f7e
-            }];
-        }
 
         // Add auto-archive duration (24 hours for forum posts)
         forumPostData.autoArchiveDuration = 1440; // 24 hours in minutes
