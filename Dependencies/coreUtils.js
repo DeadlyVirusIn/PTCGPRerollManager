@@ -2169,7 +2169,7 @@ function extractDoubleStarInfo(message) {
     }
 }
 
-// Enhanced createForumPost function - Replace your existing function with this complete version
+// Enhanced createForumPost function
 async function createForumPost(client, message, channelID, cardType, titleName, ownerID, accountID, packAmount, packType = null) {
     try {
         const guild = await getGuild(client);
@@ -2190,53 +2190,55 @@ async function createForumPost(client, message, channelID, cardType, titleName, 
             imageUrl = message.embeds[0].image.url;
         }
 
-        // Create the rich embed that matches the screenshot format
-        const embed = new EmbedBuilder()
-            .setColor('#f02f7e') // Pink color matching the screenshot
-            .setTitle(`🎉 ${cardType} found by <@${ownerID}>!`)
-            .addFields(
-                { 
-                    name: '📦 Pack Type', 
-                    value: packType || 'Unknown', 
-                    inline: true 
-                },
-                { 
-                    name: '👤 Account', 
-                    value: titleName.split(' ')[0] || 'Unknown', // Extract account name from title
-                    inline: true 
-                },
-                { 
-                    name: '📊 Packs Opened', 
-                    value: packAmount.toString(), 
-                    inline: true 
+        // Extract account name from title (remove pack info)
+        const accountName = titleName.split(' ')[0] || 'Unknown';
+        
+        // Enhanced pack type detection
+        let detectedPackType = packType;
+        if (!detectedPackType || detectedPackType === 'Unknown') {
+            // Try to detect from various sources
+            const content = message.content.toLowerCase();
+            const packNames = ['mewtwo', 'charizard', 'pikachu', 'mew', 'dialga', 'palkia', 'arceus', 'shining', 'solgaleo', 'lunala', 'buzzwole'];
+            
+            for (const pack of packNames) {
+                if (content.includes(pack)) {
+                    detectedPackType = pack.charAt(0).toUpperCase() + pack.slice(1);
+                    break;
                 }
-            );
-
-        // Add account ID if available and not a placeholder
-        if (accountID && accountID !== "0000000000000000" && accountID !== "NOTRADEID") {
-            embed.addFields({ 
-                name: '🆔 Account ID', 
-                value: accountID, 
-                inline: true 
-            });
+            }
+            
+            if (!detectedPackType) {
+                detectedPackType = 'Unknown';
+            }
         }
 
-        // Add source information
-        embed.addFields({ 
-            name: '🔗 Source', 
-            value: `[Original Message](${message.url})`, 
-            inline: false 
-        });
+        // Build the structured content exactly like the screenshot
+        let embedDescription = `🎉 **${cardType} found by <@${ownerID}>!**\n\n`;
+        embedDescription += `📦 **Pack Type**\n${detectedPackType}\n\n`;
+        embedDescription += `👤 **Account**\n${accountName}\n\n`;
+        embedDescription += `📊 **Packs Opened**\n${packAmount}\n\n`;
+        
+        // Add Account ID if available and not a placeholder
+        if (accountID && accountID !== "0000000000000000" && accountID !== "NOTRADEID") {
+            embedDescription += `🆔 **Account ID**\n${accountID}\n\n`;
+        }
+        
+        embedDescription += `🔗 **Source**\n[Original Message](${message.url})`;
+
+        // Create the embed matching the screenshot format exactly
+        const embed = new EmbedBuilder()
+            .setColor(0xf02f7e) // Pink color matching Discord theme
+            .setDescription(embedDescription);
 
         // Add the card image if available
         if (imageUrl) {
             embed.setImage(imageUrl);
         }
 
-        // Add timestamp
+        // Add timestamp to show "Today at X:XX AM"
         embed.setTimestamp();
 
-        // Extract miss information for God Packs
+        // Extract miss information for God Packs and add to content
         let postContent = '';
         if (cardType === "God Pack" && message.content.toLowerCase().includes("god pack found")) {
             try {
@@ -2247,12 +2249,8 @@ async function createForumPost(client, message, channelID, cardType, titleName, 
                     const currentMiss = missMatch[1];
                     const totalMissNeeded = missMatch[2];
                     
-                    // Add miss counter to the embed
-                    embed.addFields({
-                        name: '📊 Miss Counter',
-                        value: `[ ${currentMiss} miss / ${totalMissNeeded} ]`,
-                        inline: true
-                    });
+                    // Add miss counter as text content above the embed
+                    postContent = `**📊 Miss Counter:** [ ${currentMiss} miss / ${totalMissNeeded} ]\n\n`;
                     
                     console.log(`📊 Added miss counter: ${currentMiss}/${totalMissNeeded}`);
                 }
@@ -2261,7 +2259,7 @@ async function createForumPost(client, message, channelID, cardType, titleName, 
             }
         }
 
-        // Create the forum post data with the rich embed
+        // Create the forum post data with the enhanced embed
         const forumPostData = {
             name: titleName,
             message: {
@@ -2278,6 +2276,22 @@ async function createForumPost(client, message, channelID, cardType, titleName, 
         const createdThread = await forumChannel.threads.create(forumPostData);
         
         console.log(`✅ Forum post created: ${createdThread.name} (ID: ${createdThread.id})`);
+
+        // Add reaction emojis for God Packs to make verification easier
+        if (cardType === "God Pack") {
+            try {
+                const initialMessage = await createdThread.fetchStarterMessage();
+                if (initialMessage) {
+                    await initialMessage.react('✅'); // Verified
+                    await initialMessage.react('❌'); // Dead/Invalid
+                    await initialMessage.react('👍'); // Liked
+                    await initialMessage.react('👎'); // Not Liked
+                    console.log(`✅ Added verification reactions to God Pack thread`);
+                }
+            } catch (reactionError) {
+                console.log(`⚠️ Could not add reactions: ${reactionError.message}`);
+            }
+        }
 
         // IMMEDIATELY LEAVE THE THREAD - This is the key fix!
         try {
