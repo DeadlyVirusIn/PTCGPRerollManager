@@ -2212,18 +2212,18 @@ async function createForumPost(client, message, channelID, cardType, titleName, 
             }
         }
 
-        // Build the structured content exactly like the screenshot
-        let embedDescription = `🎉 **${cardType} found by <@${ownerID}>!**\n\n`;
-        embedDescription += `📦 **Pack Type**\n${detectedPackType}\n\n`;
-        embedDescription += `👤 **Account**\n${accountName}\n\n`;
-        embedDescription += `📊 **Packs Opened**\n${packAmount}\n\n`;
+        // Build the structured content exactly like the screenshot - COMPACT SINGLE-LINE FORMAT
+        let embedDescription = `🎉 **${cardType} found by <@${ownerID}>!**\n`;
+        embedDescription += `📦 **Pack Type:** ${detectedPackType}\n`;
+        embedDescription += `👤 **Account:** ${accountName}\n`;
+        embedDescription += `📊 **Packs Opened:** ${packAmount}\n`;
         
         // Add Account ID if available and not a placeholder
         if (accountID && accountID !== "0000000000000000" && accountID !== "NOTRADEID") {
-            embedDescription += `🆔 **Account ID**\n${accountID}\n\n`;
+            embedDescription += `🆔 **Account ID:** ${accountID}\n`;
         }
         
-        embedDescription += `🔗 **Source**\n[Original Message](${message.url})`;
+        embedDescription += `🔗 **Source:** [Original Message](${message.url})`;
 
         // Create the embed matching the screenshot format exactly
         const embed = new EmbedBuilder()
